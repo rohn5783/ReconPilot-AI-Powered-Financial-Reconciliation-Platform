@@ -1,0 +1,40 @@
+# Binaries and compiled executable files
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+reconpilot-api
+reconpilot-cli
+
+# Test & Local Reports
+*.test
+reconpilot-*.md
+reconpilot-*.json
+test-report.md
+
+# Frontend Dependencies and Build Outputs
+frontend/node_modules/
+node_modules/
+frontend/dist/
+dist/
+.vite/
+*.local
+
+# Environment variables & Secrets
+.env
+.env.*
+!.env.example
+
+# IDE & Editor configurations
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Database / Volumes
+pgdata/
+redisdata/
