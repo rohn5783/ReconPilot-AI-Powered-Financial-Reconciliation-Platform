@@ -32,13 +32,13 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 2. Connect to Database (with offline / mock tolerance)
-	db, err := repository.NewPostgresDB(ctx, &cfg.Database)
+	// 2. Connect to MongoDB (with offline / mock tolerance)
+	db, err := repository.NewMongoDB(ctx, &cfg.Database)
 	if err != nil {
-		log.Printf("\x1b[33m[WARN]\x1b[0m Database connection degraded: %v. Running in mock/offline mode.", err)
+		log.Printf("\x1b[33m[WARN]\x1b[0m MongoDB connection degraded: %v. Running in mock/offline mode.", err)
 	} else {
-		defer db.Close()
-		log.Println("\x1b[32m[DB]\x1b[0m PostgreSQL connection pool initialized.")
+		defer db.Close(context.Background())
+		log.Println("\x1b[32m[DB]\x1b[0m MongoDB client initialized.")
 	}
 
 	// 3. Connect to Redis Pub/Sub Telemetry Hub

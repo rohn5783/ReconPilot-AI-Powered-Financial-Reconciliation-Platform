@@ -2,7 +2,7 @@
 
 ReconPilot is a hardened, production-grade External Attack Surface Management (EASM) platform, automated DAG reconnaissance engine, and AI-powered security synthesis workstation.
 
-Built with **Go 1.23+**, **Gin**, **PostgreSQL**, **Redis**, the **Official Google GenAI SDK (`google.golang.org/genai`)**, and a bespoke industrial **React 19 + TypeScript + Vite** web interface designed with Swiss precision (Linear / Cloudflare Radar / Palantir Foundry aesthetic).
+Built with **Go 1.23+**, **Gin**, **MongoDB**, **Redis**, the **Official Google GenAI SDK (`google.golang.org/genai`)**, and a bespoke industrial **React 19 + TypeScript + Vite** web interface designed with Swiss precision (Linear / Cloudflare Radar / Palantir Foundry aesthetic).
 
 ---
 
@@ -116,7 +116,7 @@ Access the UI at:
 - Health Probe: **`http://localhost:8080/healthz`**
 - Prometheus Metrics: **`http://localhost:8080/metrics`**
 
-### Option 3: Docker Compose (PostgreSQL 16 + Redis 7 + Backend + Nginx Frontend)
+### Option 3: Docker Compose (MongoDB 7.0 + Redis 7 + Backend + Nginx Frontend)
 
 To spin up the multi-container production stack:
 
@@ -131,7 +131,7 @@ docker-compose up -d --build
 Access services:
 - Web Interface: **`http://localhost:5173`**
 - Backend API: **`http://localhost:8080`**
-- PostgreSQL: **`localhost:5432`** (`reconpilot` / `reconpilot_secret`)
+- MongoDB: **`localhost:27017`**
 - Redis: **`localhost:6379`**
 
 ---
@@ -146,12 +146,12 @@ reconpilot/
 │   │   └── cli/                 # Standalone CLI binary entrypoint
 │   ├── internal/
 │   │   ├── config/              # Typed configuration with viper & validation
-│   │   ├── domain/              # Scope, Asset, ScanJob, Finding, DriftDiff, AIReport
+│   │   ├── domain/              # Scope, Asset, ScanJob, Finding, DriftDiff, AIReport (with BSON tags)
 │   │   ├── security/            # Scope guardrails, SSRF blocker, DNS TXT challenge
 │   │   ├── orchestrator/        # Concurrent DAG engine, bounded worker pools, checkpoints
 │   │   ├── modules/             # Pluggable tool adapters (discovery, prober, portscan, auditor)
 │   │   ├── ai/                  # Google GenAI Go SDK client & fallback synthesis engine
-│   │   ├── repository/          # PostgreSQL (pgx/v5) & Redis (go-redis/v9) persistence
+│   │   ├── repository/          # MongoDB (official mongo-driver) & Redis (go-redis/v9) persistence
 │   │   ├── service/             # Historical drift diffing engine & report exporter
 │   │   └── transport/
 │   │       ├── http/            # Gin handlers, auth middleware, CORS, Prometheus
@@ -159,7 +159,7 @@ reconpilot/
 │   ├── pkg/
 │   │   ├── runner/              # Hardened os/exec runner with ring buffers
 │   │   └── validator/           # RFC 1123 FQDN, CIDR, and URL validators
-│   └── migrations/              # 001_init.sql relational schema
+│   └── go.mod                   # MongoDB Go driver & dependencies
 ├── frontend/
 │   ├── src/
 │   │   ├── api/                 # Strongly typed API client with high-fidelity mock fallbacks

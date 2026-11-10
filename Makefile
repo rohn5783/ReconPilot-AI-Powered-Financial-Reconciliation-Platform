@@ -25,3 +25,4 @@ down:
 clean:
 	rm -f reconpilot-api reconpilot-cli reconpilot-api.exe reconpilot-cli.exe
 	rm -rf frontend/dist
+

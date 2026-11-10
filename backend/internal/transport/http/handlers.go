@@ -20,7 +20,7 @@ import (
 
 // APIHandler coordinates REST request handlers for scopes, scans, findings, and reports.
 type APIHandler struct {
-	db           *repository.PostgresDB
+	db           *repository.MongoDB
 	orchestrator *orchestrator.PipelineOrchestrator
 	verifier     *security.DNSVerifier
 	analyst      *ai.GeminiAnalyst
@@ -29,7 +29,7 @@ type APIHandler struct {
 
 // NewAPIHandler creates a new APIHandler.
 func NewAPIHandler(
-	db *repository.PostgresDB,
+	db *repository.MongoDB,
 	orch *orchestrator.PipelineOrchestrator,
 	analyst *ai.GeminiAnalyst,
 ) *APIHandler {
@@ -47,10 +47,10 @@ func NewAPIHandler(
 // ==============================================================================
 
 func (h *APIHandler) HealthCheck(c *gin.Context) {
-	dbStatus := "connected"
-	if h.db == nil || h.db.Pool == nil {
+	dbStatus := "connected (mongodb)"
+	if h.db == nil || h.db.Client == nil {
 		dbStatus = "offline (mock mode active)"
-	} else if err := h.db.Pool.Ping(c.Request.Context()); err != nil {
+	} else if err := h.db.Ping(c.Request.Context()); err != nil {
 		dbStatus = fmt.Sprintf("degraded (%v)", err)
 	}
 

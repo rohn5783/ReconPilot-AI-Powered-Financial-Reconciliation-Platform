@@ -32,11 +32,10 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	URL             string        `mapstructure:"DATABASE_URL"`
-	MaxConns        int32         `mapstructure:"DB_MAX_CONNS"`
-	MinConns        int32         `mapstructure:"DB_MIN_CONNS"`
-	MaxConnLifetime time.Duration `mapstructure:"DB_MAX_CONN_LIFETIME"`
-	MaxConnIdleTime time.Duration `mapstructure:"DB_MAX_CONN_IDLE_TIME"`
+	URI      string        `mapstructure:"MONGODB_URI"`
+	Database string        `mapstructure:"MONGODB_DATABASE"`
+	Timeout  time.Duration `mapstructure:"MONGODB_TIMEOUT"`
+	URL      string        `mapstructure:"DATABASE_URL"`
 }
 
 type RedisConfig struct {
@@ -88,12 +87,11 @@ func Load() (*Config, error) {
 	v.SetDefault("SERVER_IDLE_TIMEOUT", 120*time.Second)
 	v.SetDefault("CORS_ALLOWED_ORIGINS", []string{"http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"})
 
-	// Database defaults
-	v.SetDefault("DATABASE_URL", "postgres://reconpilot:reconpilot@localhost:5432/reconpilot?sslmode=disable")
-	v.SetDefault("DB_MAX_CONNS", 25)
-	v.SetDefault("DB_MIN_CONNS", 5)
-	v.SetDefault("DB_MAX_CONN_LIFETIME", 30*time.Minute)
-	v.SetDefault("DB_MAX_CONN_IDLE_TIME", 5*time.Minute)
+	// Database defaults (MongoDB)
+	v.SetDefault("MONGODB_URI", "mongodb://localhost:27017")
+	v.SetDefault("MONGODB_DATABASE", "reconpilot")
+	v.SetDefault("MONGODB_TIMEOUT", 10*time.Second)
+	v.SetDefault("DATABASE_URL", "mongodb://localhost:27017")
 
 	// Redis defaults
 	v.SetDefault("REDIS_URL", "redis://localhost:6379/0")
@@ -147,8 +145,23 @@ func Load() (*Config, error) {
 	if envKey := os.Getenv("GEMINI_API_KEY"); envKey != "" {
 		cfg.AI.GeminiAPIKey = envKey
 	}
+	if mongoURI := os.Getenv("MONGODB_URI"); mongoURI != "" {
+		cfg.Database.URI = mongoURI
+	}
+	if mongoDB := os.Getenv("MONGODB_DATABASE"); mongoDB != "" {
+		cfg.Database.Database = mongoDB
+	}
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
 		cfg.Database.URL = dbURL
+		if cfg.Database.URI == "" {
+			cfg.Database.URI = dbURL
+		}
+	}
+	if cfg.Database.URI == "" && cfg.Database.URL != "" {
+		cfg.Database.URI = cfg.Database.URL
+	}
+	if cfg.Database.Database == "" {
+		cfg.Database.Database = "reconpilot"
 	}
 	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
 		cfg.Redis.URL = redisURL
@@ -167,8 +180,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid SERVER_PORT: %d (must be 1-65535)", c.Server.Port)
 	}
 
-	if strings.TrimSpace(c.Database.URL) == "" {
-		return errors.New("DATABASE_URL must not be empty")
+	if strings.TrimSpace(c.Database.URI) == "" && strings.TrimSpace(c.Database.URL) == "" {
+		return errors.New("MONGODB_URI (or DATABASE_URL) must not be empty")
 	}
 
 	if strings.TrimSpace(c.Auth.JWTSecret) == "" {

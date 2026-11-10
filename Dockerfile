@@ -42,7 +42,6 @@ WORKDIR /app
 
 COPY --from=backend-builder /bin/reconpilot-api /usr/local/bin/reconpilot-api
 COPY --from=backend-builder /bin/reconpilot-cli /usr/local/bin/reconpilot-cli
-COPY backend/migrations /app/migrations
 
 RUN chown -R reconpilot:reconpilot /app
 

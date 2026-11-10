@@ -46,7 +46,8 @@ func TestConfigValidation(t *testing.T) {
 	}
 
 	cfg.Server.Port = 8080
-	cfg.Database.URL = "" // Empty URL
+	cfg.Database.URL = ""
+	cfg.Database.URI = ""
 	if err := cfg.Validate(); err == nil {
 		t.Errorf("expected validation failure for empty database URL, got nil")
 	}

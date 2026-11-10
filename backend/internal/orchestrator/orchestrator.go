@@ -25,7 +25,7 @@ import (
 // stage checkpoint persistence, and live telemetry streaming.
 type PipelineOrchestrator struct {
 	cfg         *config.Config
-	db          *repository.PostgresDB
+	db          *repository.MongoDB
 	hub         *repository.RedisTelemetryHub
 	runner      *runner.SafeRunner
 	driftEngine *service.DriftEngine
@@ -46,7 +46,7 @@ type PipelineOrchestrator struct {
 // NewPipelineOrchestrator creates a fully wired orchestrator.
 func NewPipelineOrchestrator(
 	cfg *config.Config,
-	db *repository.PostgresDB,
+	db *repository.MongoDB,
 	hub *repository.RedisTelemetryHub,
 	safeRunner *runner.SafeRunner,
 ) *PipelineOrchestrator {
@@ -153,7 +153,7 @@ func (o *PipelineOrchestrator) ExecuteScan(ctx context.Context, scanJobID uuid.U
 	var job *domain.ScanJob
 	var scope *domain.Scope
 
-	if o.db != nil && o.db.Pool != nil {
+	if o.db != nil && o.db.Client != nil {
 		job, _ = o.db.GetJobByID(scanCtx, scanJobID)
 		if job != nil {
 			scope, _ = o.db.GetByID(scanCtx, job.ScopeID)
@@ -189,7 +189,7 @@ func (o *PipelineOrchestrator) ExecuteScan(ctx context.Context, scanJobID uuid.U
 	now := time.Now()
 	job.Status = domain.ScanRunning
 	job.StartedAt = &now
-	if o.db != nil && o.db.Pool != nil {
+	if o.db != nil && o.db.Client != nil {
 		_ = o.db.UpdateStatus(scanCtx, job.ID, domain.ScanRunning, nil)
 	}
 
@@ -240,7 +240,7 @@ func (o *PipelineOrchestrator) ExecuteScan(ctx context.Context, scanJobID uuid.U
 
 		// Stage Start Checkpoint
 		stageStart := time.Now()
-		if o.db != nil && o.db.Pool != nil {
+		if o.db != nil && o.db.Client != nil {
 			_ = o.db.UpdateCurrentStage(scanCtx, job.ID, stageName)
 			_ = o.db.SaveCheckpoint(scanCtx, job.ID, domain.StageCheckpoint{
 				Stage:     stageName,
@@ -263,7 +263,7 @@ func (o *PipelineOrchestrator) ExecuteScan(ctx context.Context, scanJobID uuid.U
 
 		if err != nil {
 			errMsg := err.Error()
-			if o.db != nil && o.db.Pool != nil {
+			if o.db != nil && o.db.Client != nil {
 				_ = o.db.SaveCheckpoint(scanCtx, job.ID, domain.StageCheckpoint{
 					Stage:      stageName,
 					Status:     domain.StageStatusFailed,
@@ -286,7 +286,7 @@ func (o *PipelineOrchestrator) ExecuteScan(ctx context.Context, scanJobID uuid.U
 		}
 		if len(res.Assets) > 0 {
 			stageCtx.LiveAssets = res.Assets
-			if o.db != nil && o.db.Pool != nil {
+			if o.db != nil && o.db.Client != nil {
 				_ = o.db.BatchInsertAssets(scanCtx, res.Assets)
 			}
 			o.mu.Lock()
@@ -295,7 +295,7 @@ func (o *PipelineOrchestrator) ExecuteScan(ctx context.Context, scanJobID uuid.U
 		}
 		if len(res.Findings) > 0 {
 			stageCtx.Findings = res.Findings
-			if o.db != nil && o.db.Pool != nil {
+			if o.db != nil && o.db.Client != nil {
 				_ = o.db.BatchInsertFindings(scanCtx, res.Findings)
 			}
 			o.mu.Lock()
@@ -305,7 +305,7 @@ func (o *PipelineOrchestrator) ExecuteScan(ctx context.Context, scanJobID uuid.U
 
 		// Stage Success Checkpoint
 		nowCompleted := time.Now()
-		if o.db != nil && o.db.Pool != nil {
+		if o.db != nil && o.db.Client != nil {
 			_ = o.db.SaveCheckpoint(scanCtx, job.ID, domain.StageCheckpoint{
 				Stage:       stageName,
 				Status:      domain.StageStatusDone,
@@ -336,7 +336,7 @@ func (o *PipelineOrchestrator) ExecuteScan(ctx context.Context, scanJobID uuid.U
 	var prevFindings []*domain.Finding
 	var prevJobID *uuid.UUID
 
-	if o.db != nil && o.db.Pool != nil {
+	if o.db != nil && o.db.Client != nil {
 		prevJob, _ := o.db.GetLatestCompletedByScope(scanCtx, scope.ID, job.ID)
 		if prevJob != nil {
 			prevJobID = &prevJob.ID
@@ -358,7 +358,7 @@ func (o *PipelineOrchestrator) ExecuteScan(ctx context.Context, scanJobID uuid.U
 	)
 
 	if len(drifts) > 0 {
-		if o.db != nil && o.db.Pool != nil {
+		if o.db != nil && o.db.Client != nil {
 			_ = o.db.BatchInsertDrifts(scanCtx, drifts)
 		}
 		o.mu.Lock()
@@ -387,7 +387,7 @@ func (o *PipelineOrchestrator) ExecuteScan(ctx context.Context, scanJobID uuid.U
 		RequestsPerSec:  float64(len(stageCtx.DiscoveredHosts)*5) / totalDuration.Seconds(),
 	}
 
-	if o.db != nil && o.db.Pool != nil {
+	if o.db != nil && o.db.Client != nil {
 		_ = o.db.UpdateMetrics(scanCtx, job.ID, metrics)
 		_ = o.db.UpdateCurrentStage(scanCtx, job.ID, domain.StageAISynthesis)
 		_ = o.db.UpdateStatus(scanCtx, job.ID, domain.ScanCompleted, nil)

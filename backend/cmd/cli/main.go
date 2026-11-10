@@ -78,7 +78,7 @@ func main() {
 			ctx := context.Background()
 
 			// Initialize dependencies
-			db, _ := repository.NewPostgresDB(ctx, &cfg.Database)
+			db, _ := repository.NewMongoDB(ctx, &cfg.Database)
 			hub := repository.NewRedisTelemetryHub(ctx, &cfg.Redis)
 			safeRunner := runner.NewSafeRunner(cfg.Pipeline.StageTimeout, cfg.Pipeline.RingBufferSizeKB)
 			orch := orchestrator.NewPipelineOrchestrator(cfg, db, hub, safeRunner)
@@ -104,7 +104,7 @@ func main() {
 
 			// Register job in orchestrator (supports standalone memory execution if DB is offline)
 			orch.RegisterStandaloneJob(job, scope)
-			if db != nil && db.Pool != nil {
+			if db != nil && db.Client != nil {
 				_ = db.Create(ctx, scope)
 				_ = db.CreateJob(ctx, job)
 			}
@@ -134,7 +134,7 @@ func main() {
 
 			// Fetch results (from in-memory orchestrator or database)
 			assets, findings, drifts := orch.GetJobArtifacts(job.ID)
-			if db != nil && db.Pool != nil && len(assets) == 0 {
+			if db != nil && db.Client != nil && len(assets) == 0 {
 				assets, _ = db.ListAssetsByScanJob(ctx, job.ID)
 				findings, _ = db.ListFindingsByScanJob(ctx, job.ID)
 				drifts, _ = db.ListDriftsByScanJob(ctx, job.ID)
