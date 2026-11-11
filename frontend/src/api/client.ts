@@ -14,6 +14,31 @@ export function getApiKey(): string {
   return import.meta.env.VITE_AUTH_API_KEY || localStorage.getItem('RECONPILOT_API_KEY') || '';
 }
 
+export function setApiKey(key: string): void {
+  if (key) {
+    localStorage.setItem('RECONPILOT_API_KEY', key.trim());
+  } else {
+    localStorage.removeItem('RECONPILOT_API_KEY');
+  }
+}
+
+async function extractErrorMessage(res: Response): Promise<string> {
+  let msg = `HTTP ${res.status}: ${res.statusText}`;
+  try {
+    const body = await res.json();
+    if (body.details) {
+      msg = `${body.error}: ${body.details}`;
+    } else if (body.message) {
+      msg = body.message;
+    } else if (body.error) {
+      msg = body.error;
+    }
+  } catch {
+    // ignore
+  }
+  return msg;
+}
+
 function getHeaders(extraHeaders: Record<string, string> = {}): HeadersInit {
   const headers: Record<string, string> = { ...extraHeaders };
   const key = getApiKey();
@@ -26,7 +51,7 @@ function getHeaders(extraHeaders: Record<string, string> = {}): HeadersInit {
 export const apiClient = {
   async getSummary(): Promise<ReconciliationSummary> {
     const res = await fetch(`${API_BASE}/summary`, { headers: getHeaders() });
-    if (!res.ok) throw new Error(`Failed to fetch summary: ${res.statusText}`);
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
     return res.json();
   },
 
@@ -43,26 +68,26 @@ export const apiClient = {
     params.append('offset', offset.toString());
 
     const res = await fetch(`${API_BASE}/traces?${params.toString()}`, { headers: getHeaders() });
-    if (!res.ok) throw new Error(`Failed to fetch traces: ${res.statusText}`);
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
     return res.json();
   },
 
   async getPayoutBatches(): Promise<{ data: PayoutBatchGroup[]; total: number }> {
     const res = await fetch(`${API_BASE}/payout-batches`, { headers: getHeaders() });
-    if (!res.ok) throw new Error(`Failed to fetch payout batches: ${res.statusText}`);
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
     return res.json();
   },
 
   async getDiscrepancies(filters: Record<string, string> = {}): Promise<{ data: Discrepancy[]; total: number }> {
     const params = new URLSearchParams(filters);
     const res = await fetch(`${API_BASE}/discrepancies?${params.toString()}`, { headers: getHeaders() });
-    if (!res.ok) throw new Error(`Failed to fetch discrepancies: ${res.statusText}`);
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
     return res.json();
   },
 
   async getDiscrepancy(id: string): Promise<Discrepancy> {
     const res = await fetch(`${API_BASE}/discrepancies/${id}`, { headers: getHeaders() });
-    if (!res.ok) throw new Error(`Failed to fetch discrepancy ${id}: ${res.statusText}`);
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
     return res.json();
   },
 
@@ -71,7 +96,7 @@ export const apiClient = {
       method: 'POST',
       headers: getHeaders(),
     });
-    if (!res.ok) throw new Error(`Diagnosis failed for ${id}: ${res.statusText}`);
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
     return res.json();
   },
 
@@ -81,7 +106,7 @@ export const apiClient = {
       headers: getHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ status }),
     });
-    if (!res.ok) throw new Error(`Failed to update status for ${id}: ${res.statusText}`);
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
   },
 
   async triggerReconcile(formData?: FormData): Promise<any> {
@@ -90,7 +115,7 @@ export const apiClient = {
       headers: getHeaders(),
       body: formData,
     });
-    if (!res.ok) throw new Error(`Reconciliation trigger failed: ${res.statusText}`);
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
     return res.json();
   },
 
@@ -99,7 +124,7 @@ export const apiClient = {
       method: 'POST',
       headers: getHeaders(),
     });
-    if (!res.ok) throw new Error(`Seed failed: ${res.statusText}`);
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
     return res.json();
   },
 

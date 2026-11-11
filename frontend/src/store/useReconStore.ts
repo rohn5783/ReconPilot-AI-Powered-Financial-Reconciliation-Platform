@@ -7,7 +7,7 @@ import {
   DiscrepancyStatus,
   PipelineTelemetryEvent,
 } from '../types';
-import { apiClient } from '../api/client';
+import { apiClient, getApiKey, setApiKey } from '../api/client';
 
 export type WorkstationView = 'explorer' | 'batches' | 'discrepancies' | 'upload';
 
@@ -37,6 +37,8 @@ interface ReconState {
   currentMessage: string;
   isTelemetryDockOpen: boolean;
   isCommandPaletteOpen: boolean;
+  lastError: string | null;
+  apiKey: string;
 
   // Actions
   fetchSummary: () => Promise<void>;
@@ -47,7 +49,7 @@ interface ReconState {
   selectDiscrepancy: (d: Discrepancy | null) => void;
   diagnoseSelectedDiscrepancy: () => Promise<void>;
   updateSelectedDiscrepancyStatus: (status: DiscrepancyStatus) => Promise<void>;
-  triggerReconcile: (formData?: FormData) => Promise<void>;
+  triggerReconcile: (formData?: FormData) => Promise<boolean>;
   seedData: () => Promise<void>;
   addTelemetryEvent: (evt: PipelineTelemetryEvent) => void;
   setSearchQuery: (q: string) => void;
@@ -59,6 +61,8 @@ interface ReconState {
   setActiveView: (v: WorkstationView) => void;
   setCommandPaletteOpen: (open: boolean) => void;
   toggleTelemetryDock: () => void;
+  setLastError: (err: string | null) => void;
+  saveApiKey: (key: string) => void;
 }
 
 export const useReconStore = create<ReconState>((set, get) => ({
@@ -85,13 +89,16 @@ export const useReconStore = create<ReconState>((set, get) => ({
   currentMessage: 'Platform idle. Ready for reconciliation runs.',
   isTelemetryDockOpen: false,
   isCommandPaletteOpen: false,
+  lastError: null,
+  apiKey: getApiKey(),
 
   fetchSummary: async () => {
     try {
       const summary = await apiClient.getSummary();
       set({ summary });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to fetch summary:', err);
+      set({ lastError: err?.message || 'Failed to fetch summary' });
     }
   },
 
@@ -101,8 +108,9 @@ export const useReconStore = create<ReconState>((set, get) => ({
       const statusParam = statusFilter === 'all' ? '' : statusFilter;
       const res = await apiClient.getTraces(searchQuery, statusParam, 100, 0);
       set({ traces: res.data, tracesTotal: res.total });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to fetch traces:', err);
+      set({ lastError: err?.message || 'Failed to fetch traces' });
     }
   },
 
@@ -110,7 +118,7 @@ export const useReconStore = create<ReconState>((set, get) => ({
     try {
       const res = await apiClient.getPayoutBatches();
       set({ payoutBatches: res.data });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to fetch payout batches:', err);
     }
   },
@@ -125,7 +133,7 @@ export const useReconStore = create<ReconState>((set, get) => ({
       if (discrepancyTypeFilter !== 'all') filters.type = discrepancyTypeFilter;
       const res = await apiClient.getDiscrepancies(filters);
       set({ discrepancies: res.data });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to fetch discrepancies:', err);
     }
   },
@@ -178,19 +186,23 @@ export const useReconStore = create<ReconState>((set, get) => ({
     }
   },
 
-  triggerReconcile: async (formData?: FormData) => {
+  triggerReconcile: async (formData?: FormData): Promise<boolean> => {
     set({
       isReconciling: true,
       currentProgress: 5,
       currentStage: 'INGESTION',
       currentMessage: 'Initiating reconciliation pipeline...',
       isTelemetryDockOpen: true,
+      lastError: null,
     });
     try {
       await apiClient.triggerReconcile(formData);
       await get().fetchAllData();
-    } catch (err) {
+      return true;
+    } catch (err: any) {
       console.error('Trigger reconcile failed:', err);
+      set({ lastError: err?.message || 'Reconciliation execution failed' });
+      return false;
     } finally {
       set({ isReconciling: false });
     }
@@ -264,5 +276,11 @@ export const useReconStore = create<ReconState>((set, get) => ({
   setActiveView: (v: WorkstationView) => set({ activeView: v }),
   setCommandPaletteOpen: (open: boolean) => set({ isCommandPaletteOpen: open }),
   toggleTelemetryDock: () => set((state) => ({ isTelemetryDockOpen: !state.isTelemetryDockOpen })),
+  setLastError: (err: string | null) => set({ lastError: err }),
+  saveApiKey: (key: string) => {
+    setApiKey(key);
+    set({ apiKey: key, lastError: null });
+    get().fetchAllData();
+  },
 }));
 

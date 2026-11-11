@@ -11,21 +11,31 @@ import {
 import { useReconStore } from '../../store/useReconStore';
 
 export const UploadView: React.FC = () => {
-  const { triggerReconcile, isReconciling, setActiveView } = useReconStore();
+  const { triggerReconcile, isReconciling, setActiveView, lastError } = useReconStore();
 
   const [ordersFile, setOrdersFile] = useState<File | null>(null);
   const [pgFile, setPGFile] = useState<File | null>(null);
   const [bankFile, setBankFile] = useState<File | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg(null);
+    setSuccessMsg(null);
+
     const formData = new FormData();
     if (ordersFile) formData.append('orders_file', ordersFile);
     if (pgFile) formData.append('pg_file', pgFile);
     if (bankFile) formData.append('bank_file', bankFile);
 
-    await triggerReconcile(formData);
-    setActiveView('explorer');
+    const ok = await triggerReconcile(formData);
+    if (ok) {
+      setSuccessMsg('CSVs parsed and 3-way reconciliation completed successfully!');
+      setTimeout(() => setActiveView('explorer'), 800);
+    } else {
+      setErrorMsg(useReconStore.getState().lastError || 'Reconciliation failed. Check file format or API credentials.');
+    }
   };
 
   return (
@@ -42,6 +52,28 @@ export const UploadView: React.FC = () => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Status & Error Feedback Banners */}
+          {errorMsg && (
+            <div className="p-3.5 rounded-lg bg-recon-crimson/15 border border-recon-crimson/50 text-recon-crimson text-xs flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <div className="flex-1 font-mono break-all leading-relaxed">
+                <span className="font-semibold uppercase tracking-wider">Ingestion / Auth Failure:</span> {errorMsg}
+                {errorMsg.toLowerCase().includes('unauthorized') && (
+                  <p className="mt-1 text-[11px] text-ledger-300">
+                    Your backend requires an API Key. Click the <span className="text-white font-semibold">Key/Shield</span> icon in the top header to configure your <code className="bg-ledger-800 px-1 py-0.5 rounded text-recon-cyan">AUTH_API_KEY</code>, or remove it from <code className="bg-ledger-800 px-1 py-0.5 rounded">.env</code>.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {successMsg && (
+            <div className="p-3.5 rounded-lg bg-recon-emerald/15 border border-recon-emerald/50 text-recon-emerald text-xs flex items-center gap-2.5">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span className="font-mono font-medium">{successMsg}</span>
+            </div>
+          )}
+
           {/* 1. Orders File */}
           <div className="bg-ledger-850 p-4 rounded-lg border border-ledger-700 hover:border-ledger-600 transition">
             <div className="flex items-center justify-between mb-2">

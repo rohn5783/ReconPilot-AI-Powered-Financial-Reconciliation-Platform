@@ -11,6 +11,10 @@ import {
   FileText,
   Activity,
   Upload,
+  Key,
+  ShieldAlert,
+  Check,
+  X,
 } from 'lucide-react';
 import { useReconStore } from '../../store/useReconStore';
 import { apiClient } from '../../api/client';
@@ -24,9 +28,22 @@ export const TopHeader: React.FC = () => {
     toggleTelemetryDock,
     currentStage,
     setActiveView,
+    apiKey,
+    saveApiKey,
+    lastError,
   } = useReconStore();
 
   const [exportOpen, setExportOpen] = useState(false);
+  const [keyModalOpen, setKeyModalOpen] = useState(false);
+  const [inputKey, setInputKey] = useState(apiKey || '');
+
+  const isAuthError = Boolean(lastError && (lastError.toLowerCase().includes('unauthorized') || lastError.includes('401')));
+
+  const handleSaveKey = (e: React.FormEvent) => {
+    e.preventDefault();
+    saveApiKey(inputKey.trim());
+    setKeyModalOpen(false);
+  };
 
   return (
     <header className="h-14 border-b border-ledger-700 bg-ledger-850 px-4 flex items-center justify-between select-none">
@@ -87,6 +104,80 @@ export const TopHeader: React.FC = () => {
 
       {/* Right Action Bar */}
       <div className="flex items-center gap-2">
+        {/* API Key Modal Button */}
+        <div className="relative">
+          <button
+            onClick={() => {
+              setInputKey(apiKey || '');
+              setKeyModalOpen(!keyModalOpen);
+            }}
+            title="Configure backend AUTH_API_KEY"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded border text-xs font-medium transition ${
+              isAuthError
+                ? 'bg-recon-crimson/20 border-recon-crimson text-recon-crimson animate-pulse'
+                : apiKey
+                ? 'bg-recon-emerald/10 border-recon-emerald/40 text-recon-emerald hover:border-recon-emerald'
+                : 'bg-ledger-800 border-ledger-700 text-ledger-300 hover:text-white'
+            }`}
+          >
+            {isAuthError ? (
+              <ShieldAlert className="w-3.5 h-3.5 text-recon-crimson" />
+            ) : (
+              <Key className="w-3.5 h-3.5" />
+            )}
+            <span>{isAuthError ? 'Auth Required' : apiKey ? 'Key Active' : 'API Key'}</span>
+          </button>
+
+          {keyModalOpen && (
+            <div className="absolute right-0 mt-2 w-80 bg-ledger-850 border border-ledger-700 rounded-lg shadow-2xl p-4 z-50 text-xs select-text">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5 font-semibold text-white">
+                  <Key className="w-4 h-4 text-recon-indigo" />
+                  <span>API Authentication Key</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setKeyModalOpen(false)}
+                  className="text-ledger-400 hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-[11px] text-ledger-400 mb-3 leading-relaxed">
+                Matches <code className="text-recon-cyan font-mono">AUTH_API_KEY</code> from your <code className="text-white">.env</code>. Saved securely in local browser storage.
+              </p>
+              <form onSubmit={handleSaveKey} className="space-y-3">
+                <input
+                  type="text"
+                  placeholder="Paste AUTH_API_KEY here..."
+                  value={inputKey}
+                  onChange={(e) => setInputKey(e.target.value)}
+                  className="w-full px-2.5 py-1.5 rounded bg-ledger-900 border border-ledger-700 text-white font-mono text-[11px] focus:outline-none focus:border-recon-indigo"
+                />
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInputKey('');
+                      saveApiKey('');
+                      setKeyModalOpen(false);
+                    }}
+                    className="text-[11px] text-ledger-400 hover:text-recon-crimson underline"
+                  >
+                    Clear Key
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-3 py-1.5 rounded bg-recon-indigo hover:bg-indigo-500 text-white font-semibold text-[11px] transition shadow"
+                  >
+                    Save & Reconnect
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
+
         {/* Upload CSVs Button */}
         <button
           onClick={() => setActiveView('upload')}
