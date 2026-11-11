@@ -1,548 +1,355 @@
 package http
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"reconpilot/internal/ai"
 	"reconpilot/internal/domain"
-	"reconpilot/internal/orchestrator"
+	"reconpilot/internal/ingestion"
 	"reconpilot/internal/repository"
-	"reconpilot/internal/security"
 	"reconpilot/internal/service"
-	"reconpilot/pkg/validator"
 )
 
-// APIHandler coordinates REST request handlers for scopes, scans, findings, and reports.
-type APIHandler struct {
-	db           *repository.MongoDB
-	orchestrator *orchestrator.PipelineOrchestrator
-	verifier     *security.DNSVerifier
-	analyst      *ai.GeminiAnalyst
-	exporter     *service.ExportService
+// Handler provides REST endpoints for the reconciliation engine.
+type Handler struct {
+	reconSvc  *service.ReconciliationService
+	exportSvc *service.ExportService
 }
 
-// NewAPIHandler creates a new APIHandler.
-func NewAPIHandler(
-	db *repository.MongoDB,
-	orch *orchestrator.PipelineOrchestrator,
-	analyst *ai.GeminiAnalyst,
-) *APIHandler {
-	return &APIHandler{
-		db:           db,
-		orchestrator: orch,
-		verifier:     security.NewDNSVerifier(10 * time.Second),
-		analyst:      analyst,
-		exporter:     service.NewExportService(),
+// NewHandler constructs Handler.
+func NewHandler(reconSvc *service.ReconciliationService, exportSvc *service.ExportService) *Handler {
+	return &Handler{
+		reconSvc:  reconSvc,
+		exportSvc: exportSvc,
 	}
 }
 
-// ==============================================================================
-// 1. HEALTH CHECKS
-// ==============================================================================
-
-func (h *APIHandler) HealthCheck(c *gin.Context) {
-	dbStatus := "connected (mongodb)"
-	if h.db == nil || h.db.Client == nil {
-		dbStatus = "offline (mock mode active)"
-	} else if err := h.db.Ping(c.Request.Context()); err != nil {
-		dbStatus = fmt.Sprintf("degraded (%v)", err)
-	}
-
+// HealthCheck responds with server status.
+func (h *Handler) HealthCheck(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
-		"service":   "reconpilot-backend",
-		"status":    "healthy",
+		"status":    "UP",
+		"version":   "1.0.0",
+		"service":   "ReconPilot 3-Way Reconciliation Engine",
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		"database":  dbStatus,
-		"version":   "1.0.0-industrial",
 	})
 }
 
-// ==============================================================================
-// 2. SCOPE HANDLERS
-// ==============================================================================
-
-type CreateScopeRequest struct {
-	Name               string   `json:"name" binding:"required"`
-	RootDomain         string   `json:"root_domain" binding:"required"`
-	AllowedCIDRs       []string `json:"allowed_cidrs"`
-	ExcludedCIDRs      []string `json:"excluded_cidrs"`
-	ExcludedSubdomains []string `json:"excluded_subdomains"`
-	RateLimitRPS       int      `json:"rate_limit_rps"`
+// GetSummary returns executive reconciliation KPIs.
+func (h *Handler) GetSummary(c *gin.Context) {
+	summary, err := h.reconSvc.GetSummary(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to compute summary", "details": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, summary)
 }
 
-func (h *APIHandler) CreateScope(c *gin.Context) {
-	var req CreateScopeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+// GetTraces returns 3-way trace items with search, status filtering, and pagination.
+func (h *Handler) GetTraces(c *gin.Context) {
+	search := c.Query("search")
+	statusFilter := c.Query("status") // "reconciled", "discrepancy", or all
+	limitStr := c.DefaultQuery("limit", "50")
+	offsetStr := c.DefaultQuery("offset", "0")
 
-	if err := validator.ValidateFQDN(req.RootDomain); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid root domain: %v", err)})
-		return
-	}
+	limit, _ := strconv.Atoi(limitStr)
+	offset, _ := strconv.Atoi(offsetStr)
 
-	token, err := h.verifier.GenerateToken()
+	traces, total, err := h.reconSvc.GetTraces(c.Request.Context(), search, statusFilter, limit, offset)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate verification token"})
-		return
-	}
-
-	rps := req.RateLimitRPS
-	if rps <= 0 {
-		rps = 20
-	}
-
-	scope := &domain.Scope{
-		ID:                 uuid.New(),
-		Name:               req.Name,
-		RootDomain:         req.RootDomain,
-		VerificationStatus: domain.VerificationPending,
-		VerificationToken:  token,
-		AllowedCIDRs:       req.AllowedCIDRs,
-		ExcludedCIDRs:      req.ExcludedCIDRs,
-		ExcludedSubdomains: req.ExcludedSubdomains,
-		RateLimitRPS:       rps,
-	}
-
-	if err := h.db.Create(c.Request.Context(), scope); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to save scope: %v", err)})
-		return
-	}
-
-	c.JSON(http.StatusCreated, scope)
-}
-
-func (h *APIHandler) ListScopes(c *gin.Context) {
-	scopes, err := h.db.List(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if scopes == nil {
-		scopes = []*domain.Scope{}
-	}
-	c.JSON(http.StatusOK, scopes)
-}
-
-func (h *APIHandler) GetScope(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scope UUID"})
-		return
-	}
-
-	scope, err := h.db.GetByID(c.Request.Context(), id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if scope == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "scope not found"})
-		return
-	}
-
-	c.JSON(http.StatusOK, scope)
-}
-
-func (h *APIHandler) VerifyScope(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scope UUID"})
-		return
-	}
-
-	scope, err := h.db.GetByID(c.Request.Context(), id)
-	if err != nil || scope == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "scope not found"})
-		return
-	}
-
-	// In development or dry-run, auto-verify if forced query param ?mock=true
-	if c.Query("mock") == "true" {
-		_ = h.db.UpdateVerificationStatus(c.Request.Context(), id, domain.VerificationVerified)
-		scope.VerificationStatus = domain.VerificationVerified
-		c.JSON(http.StatusOK, gin.H{
-			"verified": true,
-			"status":   domain.VerificationVerified,
-			"details":  "Target verified via development bypass token.",
-		})
-		return
-	}
-
-	verified, details, verifyErr := h.verifier.VerifyOwnership(
-		c.Request.Context(), scope.RootDomain, scope.VerificationToken,
-	)
-	if verifyErr != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": verifyErr.Error()})
-		return
-	}
-
-	if verified {
-		_ = h.db.UpdateVerificationStatus(c.Request.Context(), id, domain.VerificationVerified)
-		c.JSON(http.StatusOK, gin.H{
-			"verified": true,
-			"status":   domain.VerificationVerified,
-			"details":  details,
-		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch traces", "details": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"verified": false,
-		"status":   domain.VerificationPending,
-		"details":  details,
-		"instruction": fmt.Sprintf(
-			"Publish DNS TXT record with value %q at root domain or _reconpilot-challenge.%s",
-			scope.VerificationToken, scope.RootDomain,
-		),
+		"data":   traces,
+		"total":  total,
+		"limit":  limit,
+		"offset": offset,
 	})
 }
 
-func (h *APIHandler) DeleteScope(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
+// GetPayoutBatches returns Level-2 payment gateway payout batch aggregates.
+func (h *Handler) GetPayoutBatches(c *gin.Context) {
+	batches, err := h.reconSvc.GetPayoutBatches(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scope UUID"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch payout batches", "details": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"data":  batches,
+		"total": len(batches),
+	})
+}
+
+// GetDiscrepancies queries detected financial variances with multi-dimensional filtering.
+func (h *Handler) GetDiscrepancies(c *gin.Context) {
+	filter := repository.DiscrepancyFilter{}
+
+	if levelStr := c.Query("level"); levelStr != "" {
+		l := domain.DiscrepancyLevel(levelStr)
+		filter.Level = &l
+	}
+	if typeStr := c.Query("type"); typeStr != "" {
+		t := domain.DiscrepancyType(typeStr)
+		filter.Type = &t
+	}
+	if sevStr := c.Query("severity"); sevStr != "" {
+		s := domain.DiscrepancySeverity(sevStr)
+		filter.Severity = &s
+	}
+	if statusStr := c.Query("status"); statusStr != "" {
+		st := domain.DiscrepancyStatus(statusStr)
+		filter.Status = &st
+	}
+	if orderID := c.Query("order_id"); orderID != "" {
+		filter.OrderID = &orderID
+	}
+	if payoutID := c.Query("payout_id"); payoutID != "" {
+		filter.PayoutID = &payoutID
+	}
+
+	limitStr := c.DefaultQuery("limit", "100")
+	offsetStr := c.DefaultQuery("offset", "0")
+	limit, _ := strconv.Atoi(limitStr)
+	offset, _ := strconv.Atoi(offsetStr)
+	filter.Limit = limit
+	filter.Offset = offset
+
+	discrepancies, err := h.reconSvc.GetDiscrepancies(c.Request.Context(), filter)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch discrepancies", "details": err.Error()})
 		return
 	}
 
-	if err := h.db.Delete(c.Request.Context(), id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	c.JSON(http.StatusOK, gin.H{
+		"data":  discrepancies,
+		"total": len(discrepancies),
+	})
+}
+
+// GetDiscrepancyByID retrieves a single discrepancy audit record.
+func (h *Handler) GetDiscrepancyByID(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid discrepancy uuid format"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+	d, err := h.reconSvc.GetDiscrepancyByID(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query discrepancy", "details": err.Error()})
+		return
+	}
+	if d == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "discrepancy not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, d)
 }
 
-// ==============================================================================
-// 3. SCAN JOB HANDLERS
-// ==============================================================================
+// DiagnoseDiscrepancy runs Gemini AI analysis on demand for a discrepancy.
+func (h *Handler) DiagnoseDiscrepancy(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid discrepancy uuid format"})
+		return
+	}
 
-type CreateScanRequest struct {
-	ScopeID uuid.UUID          `json:"scope_id" binding:"required"`
-	Profile domain.ScanProfile `json:"profile"`
-	DryRun  *bool              `json:"dry_run"`
+	diag, err := h.reconSvc.DiagnoseDiscrepancy(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "diagnosis failed", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, diag)
 }
 
-func (h *APIHandler) CreateScan(c *gin.Context) {
-	var req CreateScanRequest
+// UpdateDiscrepancyStatus updates status (e.g. OPEN, IN_DISPUTE, RESOLVED, WRITTEN_OFF).
+func (h *Handler) UpdateDiscrepancyStatus(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid discrepancy uuid format"})
+		return
+	}
+
+	var req struct {
+		Status domain.DiscrepancyStatus `json:"status" binding:"required"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid status payload", "details": err.Error()})
 		return
 	}
 
-	scope, err := h.db.GetByID(c.Request.Context(), req.ScopeID)
-	if err != nil || scope == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "scope not found"})
+	if err := h.reconSvc.UpdateDiscrepancyStatus(c.Request.Context(), id, req.Status); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update status", "details": err.Error()})
 		return
 	}
 
-	profile := req.Profile
-	if profile == "" {
-		profile = domain.ProfileStandard
-	}
-
-	dryRun := false
-	if req.DryRun != nil {
-		dryRun = *req.DryRun
-	}
-
-	job := &domain.ScanJob{
-		ID:               uuid.New(),
-		ScopeID:          scope.ID,
-		Status:           domain.ScanQueued,
-		Profile:          profile,
-		CurrentStage:     domain.StageIdle,
-		StageCheckpoints: make(map[domain.StageName]domain.StageCheckpoint),
-		Metrics:          domain.ScanMetrics{},
-		DryRun:           dryRun,
-	}
-
-	if err := h.db.CreateJob(c.Request.Context(), job); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to create scan job: %v", err)})
-		return
-	}
-
-	// Launch async execution in orchestrator worker pool
-	go func(jobID uuid.UUID) {
-		_ = h.orchestrator.ExecuteScan(context.Background(), jobID)
-	}(job.ID)
-
-	c.JSON(http.StatusAccepted, job)
+	c.JSON(http.StatusOK, gin.H{"status": "updated", "id": id, "new_status": req.Status})
 }
 
-func (h *APIHandler) ListScans(c *gin.Context) {
-	scopeIDStr := c.Query("scope_id")
-	if scopeIDStr != "" {
-		scopeID, err := uuid.Parse(scopeIDStr)
+// TriggerReconciliation triggers an on-demand reconciliation run with optional CSV uploads.
+func (h *Handler) TriggerReconciliation(c *gin.Context) {
+	var customOrders []domain.Order
+	var customPG []domain.PGSettlement
+	var customBank []domain.BankStatement
+
+	// 1. Check for orders file
+	if fileHeader, err := c.FormFile("orders_file"); err == nil {
+		file, err := fileHeader.Open()
 		if err == nil {
-			jobs, err := h.db.ListJobsByScope(c.Request.Context(), scopeID)
+			defer file.Close()
+			parsed, err := ingestion.ParseOrdersCSV(file, false)
 			if err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse orders_file CSV", "details": err.Error()})
 				return
 			}
-			if jobs == nil {
-				jobs = []*domain.ScanJob{}
+			customOrders = parsed
+		}
+	}
+
+	// 2. Check for PG settlements file
+	if fileHeader, err := c.FormFile("pg_file"); err == nil {
+		file, err := fileHeader.Open()
+		if err == nil {
+			defer file.Close()
+			parsed, err := ingestion.ParsePGSettlementsCSV(file, false)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse pg_file CSV", "details": err.Error()})
+				return
 			}
-			c.JSON(http.StatusOK, jobs)
+			customPG = parsed
+		}
+	}
+
+	// 3. Check for bank statement file
+	if fileHeader, err := c.FormFile("bank_file"); err == nil {
+		file, err := fileHeader.Open()
+		if err == nil {
+			defer file.Close()
+			parsed, err := ingestion.ParseBankStatementsCSV(file, false)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse bank_file CSV", "details": err.Error()})
+				return
+			}
+			customBank = parsed
+		}
+	}
+
+	// Execute reconciliation
+	res, err := h.reconSvc.RunReconciliation(c.Request.Context(), customOrders, customPG, customBank)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "reconciliation execution failed", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message":       "Reconciliation executed successfully",
+		"summary":       res.Summary,
+		"discrepancies": len(res.Discrepancies),
+		"traces":        len(res.TraceItems),
+	})
+}
+
+// StreamTelemetry streams real-time pipeline events and progress over Server-Sent Events (SSE).
+func (h *Handler) StreamTelemetry(c *gin.Context) {
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("Transfer-Encoding", "chunked")
+
+	ch, unsubscribe := h.reconSvc.Hub().Subscribe()
+	defer unsubscribe()
+
+	c.Writer.Flush()
+
+	clientGone := c.Request.Context().Done()
+
+	for {
+		select {
+		case <-clientGone:
 			return
+		case evt, ok := <-ch:
+			if !ok {
+				return
+			}
+			data, err := json.Marshal(evt)
+			if err != nil {
+				continue
+			}
+			_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(data))
+			c.Writer.Flush()
 		}
 	}
-
-	// Fetch all scopes and their scans
-	scopes, err := h.db.List(c.Request.Context())
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	var allJobs []*domain.ScanJob
-	for _, s := range scopes {
-		jobs, _ := h.db.ListJobsByScope(c.Request.Context(), s.ID)
-		allJobs = append(allJobs, jobs...)
-	}
-
-	if allJobs == nil {
-		allJobs = []*domain.ScanJob{}
-	}
-
-	c.JSON(http.StatusOK, allJobs)
 }
 
-func (h *APIHandler) GetScan(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan UUID"})
+// SeedData resets the database and seeds realistic demo data.
+func (h *Handler) SeedData(c *gin.Context) {
+	if err := h.reconSvc.SeedMockData(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "seed failed", "details": err.Error()})
 		return
 	}
-
-	job, err := h.db.GetJobByID(c.Request.Context(), id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if job == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "scan job not found"})
-		return
-	}
-
-	c.JSON(http.StatusOK, job)
+	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Demo financial dataset successfully seeded"})
 }
 
-func (h *APIHandler) CancelScan(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan UUID"})
+// ExportReport exports reconciliation results as CSV or JSON.
+func (h *Handler) ExportReport(c *gin.Context) {
+	format := c.DefaultQuery("format", "csv")
+	target := c.DefaultQuery("target", "traces") // "traces" or "discrepancies"
+
+	lastResult := h.reconSvc.LastResult()
+	if lastResult == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no reconciliation result available for export"})
 		return
 	}
 
-	success := h.orchestrator.CancelScan(id)
-	msg := "Cancellation signal sent."
-	_ = h.db.UpdateStatus(c.Request.Context(), id, domain.ScanCancelled, &msg)
-
-	c.JSON(http.StatusOK, gin.H{"cancelled": success})
-}
-
-// ==============================================================================
-// 4. ARTIFACT & TELEMETRY QUERY HANDLERS
-// ==============================================================================
-
-func (h *APIHandler) GetScanAssets(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan UUID"})
-		return
-	}
-
-	assets, err := h.db.ListAssetsByScanJob(c.Request.Context(), id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if assets == nil {
-		assets = []*domain.Asset{}
-	}
-
-	c.JSON(http.StatusOK, assets)
-}
-
-func (h *APIHandler) GetScanDrifts(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan UUID"})
-		return
-	}
-
-	drifts, err := h.db.ListDriftsByScanJob(c.Request.Context(), id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if drifts == nil {
-		drifts = []*domain.AssetDrift{}
-	}
-
-	c.JSON(http.StatusOK, drifts)
-}
-
-func (h *APIHandler) GetScanFindings(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan UUID"})
-		return
-	}
-
-	findings, err := h.db.ListFindingsByScanJob(c.Request.Context(), id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	if findings == nil {
-		findings = []*domain.Finding{}
-	}
-
-	c.JSON(http.StatusOK, findings)
-}
-
-func (h *APIHandler) GetScanReport(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan UUID"})
-		return
-	}
-
-	report, err := h.db.GetAIReportByScanJob(c.Request.Context(), id)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	// If report doesn't exist yet, synthesize on-the-fly!
-	if report == nil {
-		job, _ := h.db.GetJobByID(c.Request.Context(), id)
-		if job == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "scan job not found"})
-			return
-		}
-		scope, _ := h.db.GetByID(c.Request.Context(), job.ScopeID)
-		root := "Unknown"
-		if scope != nil {
-			root = scope.RootDomain
-		}
-
-		assets, _ := h.db.ListAssetsByScanJob(c.Request.Context(), id)
-		findings, _ := h.db.ListFindingsByScanJob(c.Request.Context(), id)
-
-		report, err = h.analyst.GenerateReport(c.Request.Context(), id, root, assets, findings, nil)
+	if format == "json" {
+		data, err := h.exportSvc.ExportJSON(lastResult)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to synthesize AI report: %v", err)})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "export json failed", "details": err.Error()})
 			return
 		}
-		_ = h.db.CreateAIReport(c.Request.Context(), report)
+		c.Header("Content-Disposition", "attachment; filename=reconpilot-audit.json")
+		c.Data(http.StatusOK, "application/json", data)
+		return
 	}
 
-	c.JSON(http.StatusOK, report)
+	// CSV Export
+	var data []byte
+	var err error
+	var filename string
+
+	if target == "discrepancies" {
+		data, err = h.exportSvc.ExportDiscrepanciesCSV(lastResult.Discrepancies)
+		filename = "reconpilot-discrepancies.csv"
+	} else {
+		data, err = h.exportSvc.ExportTracesCSV(lastResult.TraceItems)
+		filename = "reconpilot-3way-traces.csv"
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "export csv failed", "details": err.Error()})
+		return
+	}
+
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+	c.Data(http.StatusOK, "text/csv", data)
 }
 
-func (h *APIHandler) GenerateReport(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan UUID"})
-		return
-	}
-
-	job, err := h.db.GetJobByID(c.Request.Context(), id)
-	if err != nil || job == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "scan job not found"})
-		return
-	}
-
-	scope, _ := h.db.GetByID(c.Request.Context(), job.ScopeID)
-	root := "Unknown"
-	if scope != nil {
-		root = scope.RootDomain
-	}
-
-	assets, _ := h.db.ListAssetsByScanJob(c.Request.Context(), id)
-	findings, _ := h.db.ListFindingsByScanJob(c.Request.Context(), id)
-
-	report, err := h.analyst.GenerateReport(c.Request.Context(), id, root, assets, findings, nil)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	_ = h.db.CreateAIReport(c.Request.Context(), report)
-	c.JSON(http.StatusOK, report)
-}
-
-// ==============================================================================
-// 5. EXPORT HANDLERS
-// ==============================================================================
-
-func (h *APIHandler) ExportMarkdown(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan UUID"})
-		return
-	}
-
-	job, _ := h.db.GetJobByID(c.Request.Context(), id)
-	if job == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "scan job not found"})
-		return
-	}
-
-	scope, _ := h.db.GetByID(c.Request.Context(), job.ScopeID)
-	assets, _ := h.db.ListAssetsByScanJob(c.Request.Context(), id)
-	drifts, _ := h.db.ListDriftsByScanJob(c.Request.Context(), id)
-	findings, _ := h.db.ListFindingsByScanJob(c.Request.Context(), id)
-	report, _ := h.db.GetAIReportByScanJob(c.Request.Context(), id)
-
-	md, err := h.exporter.ExportMarkdown(scope, job, assets, drifts, findings, report)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	fileName := fmt.Sprintf("reconpilot-report-%s.md", id.String()[:8])
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", fileName))
-	c.Data(http.StatusOK, "text/markdown; charset=utf-8", []byte(md))
-}
-
-func (h *APIHandler) ExportJSON(c *gin.Context) {
-	id, err := uuid.Parse(c.Param("id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan UUID"})
-		return
-	}
-
-	job, _ := h.db.GetJobByID(c.Request.Context(), id)
-	if job == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "scan job not found"})
-		return
-	}
-
-	scope, _ := h.db.GetByID(c.Request.Context(), job.ScopeID)
-	assets, _ := h.db.ListAssetsByScanJob(c.Request.Context(), id)
-	drifts, _ := h.db.ListDriftsByScanJob(c.Request.Context(), id)
-	findings, _ := h.db.ListFindingsByScanJob(c.Request.Context(), id)
-	report, _ := h.db.GetAIReportByScanJob(c.Request.Context(), id)
-
-	jsonBytes, err := h.exporter.ExportJSON(scope, job, assets, drifts, findings, report)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	fileName := fmt.Sprintf("reconpilot-scan-%s.json", id.String()[:8])
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", fileName))
-	c.Data(http.StatusOK, "application/json; charset=utf-8", jsonBytes)
+// ReadFullBody reads io.Reader safely
+func readFull(r io.Reader) []byte {
+	b, _ := io.ReadAll(r)
+	return b
 }
 

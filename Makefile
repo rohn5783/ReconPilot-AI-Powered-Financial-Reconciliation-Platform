@@ -1,28 +1,46 @@
-.PHONY: all test build up down clean test-backend build-frontend
+.PHONY: all build build-backend build-frontend test run-api run-cli seed docker-up docker-down clean
 
-all: test build
-
-test: test-backend
-
-test-backend:
-	cd backend && go test -v ./...
+all: build
 
 build: build-backend build-frontend
 
 build-backend:
-	cd backend && go build -o ../reconpilot-api ./cmd/api
-	cd backend && go build -o ../reconpilot-cli ./cmd/cli
+	@echo "Building ReconPilot Golang API and CLI binaries..."
+	@mkdir -p bin
+	cd backend && go build -ldflags="-w -s" -o ../bin/reconpilot-api ./cmd/api
+	cd backend && go build -ldflags="-w -s" -o ../bin/reconpilot ./cmd/cli
 
 build-frontend:
-	cd frontend && npm install && npm run build
+	@echo "Building React 19 Frontend workstation..."
+	cd frontend && npm run build
 
-up:
-	docker-compose up -d --build
+test: test-backend test-frontend
 
-down:
-	docker-compose down
+test-backend:
+	@echo "Running Golang test suites..."
+	cd backend && go test -v -race ./...
+
+test-frontend:
+	@echo "Typechecking React frontend..."
+	cd frontend && npm run build
+
+run-api:
+	cd backend && go run ./cmd/api
+
+run-cli:
+	cd backend && go run ./cmd/cli
+
+seed:
+	@echo "Generating sample CSV files in ./samples..."
+	@mkdir -p samples
+	./bin/reconpilot seed --output-dir ./samples
+
+docker-up:
+	docker compose up --build -d
+
+docker-down:
+	docker compose down -v
 
 clean:
-	rm -f reconpilot-api reconpilot-cli reconpilot-api.exe reconpilot-cli.exe
-	rm -rf frontend/dist
-
+	@rm -rf bin samples frontend/dist
+	@echo "Cleaned build artifacts."

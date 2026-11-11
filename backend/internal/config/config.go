@@ -10,129 +10,81 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Config represents the strictly typed, validated runtime configuration for ReconPilot.
+// Config encapsulates strictly typed, validated environment configuration for ReconPilot.
 type Config struct {
-	Environment string         `mapstructure:"ENVIRONMENT"`
-	Server      ServerConfig   `mapstructure:",squash"`
-	Database    DatabaseConfig `mapstructure:",squash"`
-	Redis       RedisConfig    `mapstructure:",squash"`
-	Auth        AuthConfig     `mapstructure:",squash"`
-	AI          AIConfig       `mapstructure:",squash"`
-	Pipeline    PipelineConfig `mapstructure:",squash"`
-	Logging     LoggingConfig  `mapstructure:",squash"`
+	Pipeline PipelineConfig `mapstructure:",squash"`
+	Security SecurityConfig `mapstructure:",squash"`
+	AI       AIConfig       `mapstructure:",squash"`
+	Auth     AuthConfig     `mapstructure:",squash"`
+	MockMode bool           `mapstructure:"MOCK_MODE"`
+	Database DatabaseConfig `mapstructure:",squash"`
+	Server   ServerConfig   `mapstructure:",squash"`
 }
 
-type ServerConfig struct {
-	Host               string        `mapstructure:"SERVER_HOST"`
-	Port               int           `mapstructure:"SERVER_PORT"`
-	ReadTimeout        time.Duration `mapstructure:"SERVER_READ_TIMEOUT"`
-	WriteTimeout       time.Duration `mapstructure:"SERVER_WRITE_TIMEOUT"`
-	IdleTimeout        time.Duration `mapstructure:"SERVER_IDLE_TIMEOUT"`
-	CORSAllowedOrigins []string      `mapstructure:"CORS_ALLOWED_ORIGINS"`
-}
-
-type DatabaseConfig struct {
-	URI      string        `mapstructure:"MONGODB_URI"`
-	Database string        `mapstructure:"MONGODB_DATABASE"`
-	Timeout  time.Duration `mapstructure:"MONGODB_TIMEOUT"`
-	URL      string        `mapstructure:"DATABASE_URL"`
-}
-
-type RedisConfig struct {
-	URL      string `mapstructure:"REDIS_URL"`
-	Password string `mapstructure:"REDIS_PASSWORD"`
-	DB       int    `mapstructure:"REDIS_DB"`
-}
-
-type AuthConfig struct {
-	JWTSecret    string `mapstructure:"JWT_SECRET"`
-	MasterAPIKey string `mapstructure:"MASTER_API_KEY"`
-}
-
-type AIConfig struct {
-	GeminiAPIKey string  `mapstructure:"GEMINI_API_KEY"`
-	GeminiModel  string  `mapstructure:"GEMINI_MODEL"`
-	MaxTokens    int     `mapstructure:"GEMINI_MAX_TOKENS"`
-	Temperature  float64 `mapstructure:"GEMINI_TEMPERATURE"`
-}
-
+// PipelineConfig controls concurrency, timeouts, and bounded streaming buffers.
 type PipelineConfig struct {
-	MaxConcurrentScans int           `mapstructure:"MAX_CONCURRENT_SCANS"`
-	StageTimeout       time.Duration `mapstructure:"STAGE_TIMEOUT"`
-	GlobalScanTimeout  time.Duration `mapstructure:"GLOBAL_SCAN_TIMEOUT"`
-	DryRunDefault      bool          `mapstructure:"DRY_RUN_DEFAULT"`
-	SubfinderBin       string        `mapstructure:"SUBFINDER_BIN"`
-	HttpxBin           string        `mapstructure:"HTTPX_BIN"`
-	NmapBin            string        `mapstructure:"NMAP_BIN"`
-	NucleiBin          string        `mapstructure:"NUCLEI_BIN"`
-	RingBufferSizeKB   int           `mapstructure:"RING_BUFFER_SIZE_KB"`
+	MaxConcurrentBatches int           `mapstructure:"PIPELINE_MAX_CONCURRENT_BATCHES"`
+	StageTimeout         time.Duration `mapstructure:"PIPELINE_STAGE_TIMEOUT"`
+	RingBufferSizeKB     int           `mapstructure:"PIPELINE_RING_BUFFER_SIZE_KB"`
 }
 
-type LoggingConfig struct {
-	Level  string `mapstructure:"LOG_LEVEL"`
-	Format string `mapstructure:"LOG_FORMAT"`
+// SecurityConfig controls ingestion validation rigor.
+type SecurityConfig struct {
+	EnforceStrictSchema bool `mapstructure:"SECURITY_ENFORCE_STRICT_SCHEMA"`
 }
 
-// Load loads configuration from environment variables, optional .env files, and sane defaults.
+// AIConfig configures Google Gemini 2.5 Flash for discrepancy diagnosis.
+type AIConfig struct {
+	GeminiAPIKey string `mapstructure:"GEMINI_API_KEY"`
+	GeminiModel  string `mapstructure:"GEMINI_MODEL"`
+}
+
+// AuthConfig defines API authentication keys.
+type AuthConfig struct {
+	APIKey string `mapstructure:"AUTH_API_KEY"`
+}
+
+// DatabaseConfig holds PostgreSQL relational connection settings.
+type DatabaseConfig struct {
+	URL string `mapstructure:"DATABASE_URL"`
+}
+
+// ServerConfig holds HTTP server listening settings.
+type ServerConfig struct {
+	Port int `mapstructure:"PORT"`
+}
+
+// Load loads configuration from environment variables, optional .env files, and defaults.
 func Load() (*Config, error) {
 	v := viper.New()
 
-	v.SetDefault("ENVIRONMENT", "development")
+	// 1. Set explicit defaults conforming strictly to Part 1.1
+	v.SetDefault("PIPELINE_MAX_CONCURRENT_BATCHES", 10)
+	v.SetDefault("PIPELINE_STAGE_TIMEOUT", 5*time.Minute)
+	v.SetDefault("PIPELINE_RING_BUFFER_SIZE_KB", 2048)
 
-	// Server defaults
-	v.SetDefault("SERVER_HOST", "0.0.0.0")
-	v.SetDefault("SERVER_PORT", 8080)
-	v.SetDefault("SERVER_READ_TIMEOUT", 30*time.Second)
-	v.SetDefault("SERVER_WRITE_TIMEOUT", 60*time.Second)
-	v.SetDefault("SERVER_IDLE_TIMEOUT", 120*time.Second)
-	v.SetDefault("CORS_ALLOWED_ORIGINS", []string{"http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"})
+	v.SetDefault("SECURITY_ENFORCE_STRICT_SCHEMA", true)
 
-	// Database defaults (MongoDB)
-	v.SetDefault("MONGODB_URI", "mongodb://localhost:27017")
-	v.SetDefault("MONGODB_DATABASE", "reconpilot")
-	v.SetDefault("MONGODB_TIMEOUT", 10*time.Second)
-	v.SetDefault("DATABASE_URL", "mongodb://localhost:27017")
-
-	// Redis defaults
-	v.SetDefault("REDIS_URL", "redis://localhost:6379/0")
-	v.SetDefault("REDIS_PASSWORD", "")
-	v.SetDefault("REDIS_DB", 0)
-
-	// Auth defaults
-	v.SetDefault("JWT_SECRET", "reconpilot-hardened-jwt-secret-replace-in-prod-32chars")
-	v.SetDefault("MASTER_API_KEY", "reconpilot_adm_live_9f8d7c6b5a4e3d2c1")
-
-	// AI defaults
 	v.SetDefault("GEMINI_API_KEY", "")
 	v.SetDefault("GEMINI_MODEL", "gemini-2.5-flash")
-	v.SetDefault("GEMINI_MAX_TOKENS", 8192)
-	v.SetDefault("GEMINI_TEMPERATURE", 0.2)
 
-	// Pipeline defaults
-	v.SetDefault("MAX_CONCURRENT_SCANS", 4)
-	v.SetDefault("STAGE_TIMEOUT", 15*time.Minute)
-	v.SetDefault("GLOBAL_SCAN_TIMEOUT", 45*time.Minute)
-	v.SetDefault("DRY_RUN_DEFAULT", false)
-	v.SetDefault("SUBFINDER_BIN", "subfinder")
-	v.SetDefault("HTTPX_BIN", "httpx")
-	v.SetDefault("NMAP_BIN", "nmap")
-	v.SetDefault("NUCLEI_BIN", "nuclei")
-	v.SetDefault("RING_BUFFER_SIZE_KB", 1024)
+	v.SetDefault("AUTH_API_KEY", "reconpilot-secret-dev-key")
+	v.SetDefault("MOCK_MODE", false)
 
-	// Logging defaults
-	v.SetDefault("LOG_LEVEL", "info")
-	v.SetDefault("LOG_FORMAT", "json")
+	v.SetDefault("DATABASE_URL", "postgres://reconpilot:reconpilot@localhost:5432/reconpilot?sslmode=disable")
+	v.SetDefault("PORT", 8080)
 
+	// 2. Read environment variables automatically
 	v.AutomaticEnv()
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 
-	// Optionally read local .env file if present
+	// 3. Optionally read local .env file
 	v.SetConfigFile(".env")
 	v.SetConfigType("env")
 	if err := v.ReadInConfig(); err != nil {
 		var configFileNotFoundError viper.ConfigFileNotFoundError
 		if !errors.As(err, &configFileNotFoundError) && !os.IsNotExist(err) {
-			// Non-critical if file not found; critical if invalid format
+			// Non-critical if file is absent, error if syntax is corrupted
 		}
 	}
 
@@ -141,30 +93,15 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("failed to unmarshal configuration: %w", err)
 	}
 
-	// Override from direct os.Getenv for essential keys
-	if envKey := os.Getenv("GEMINI_API_KEY"); envKey != "" {
-		cfg.AI.GeminiAPIKey = envKey
+	// Direct OS env fallbacks for critical cloud injection
+	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
+		cfg.AI.GeminiAPIKey = apiKey
 	}
-	if mongoURI := os.Getenv("MONGODB_URI"); mongoURI != "" {
-		cfg.Database.URI = mongoURI
-	}
-	if mongoDB := os.Getenv("MONGODB_DATABASE"); mongoDB != "" {
-		cfg.Database.Database = mongoDB
+	if authKey := os.Getenv("AUTH_API_KEY"); authKey != "" {
+		cfg.Auth.APIKey = authKey
 	}
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
 		cfg.Database.URL = dbURL
-		if cfg.Database.URI == "" {
-			cfg.Database.URI = dbURL
-		}
-	}
-	if cfg.Database.URI == "" && cfg.Database.URL != "" {
-		cfg.Database.URI = cfg.Database.URL
-	}
-	if cfg.Database.Database == "" {
-		cfg.Database.Database = "reconpilot"
-	}
-	if redisURL := os.Getenv("REDIS_URL"); redisURL != "" {
-		cfg.Redis.URL = redisURL
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -174,34 +111,30 @@ func Load() (*Config, error) {
 	return &cfg, nil
 }
 
-// Validate ensures all configuration invariants are satisfied.
+// Validate verifies configuration bounds and invariants.
 func (c *Config) Validate() error {
 	if c.Server.Port <= 0 || c.Server.Port > 65535 {
-		return fmt.Errorf("invalid SERVER_PORT: %d (must be 1-65535)", c.Server.Port)
+		return fmt.Errorf("invalid PORT: %d (must be between 1 and 65535)", c.Server.Port)
 	}
 
-	if strings.TrimSpace(c.Database.URI) == "" && strings.TrimSpace(c.Database.URL) == "" {
-		return errors.New("MONGODB_URI (or DATABASE_URL) must not be empty")
-	}
-
-	if strings.TrimSpace(c.Auth.JWTSecret) == "" {
-		return errors.New("JWT_SECRET must not be empty")
-	}
-
-	if len(c.Auth.JWTSecret) < 16 && c.Environment == "production" {
-		return errors.New("JWT_SECRET must be at least 16 characters in production")
-	}
-
-	if c.Pipeline.MaxConcurrentScans < 1 {
-		return errors.New("MAX_CONCURRENT_SCANS must be at least 1")
+	if c.Pipeline.MaxConcurrentBatches < 1 {
+		return errors.New("PIPELINE_MAX_CONCURRENT_BATCHES must be at least 1")
 	}
 
 	if c.Pipeline.StageTimeout <= 0 {
-		return errors.New("STAGE_TIMEOUT must be positive")
+		return errors.New("PIPELINE_STAGE_TIMEOUT must be positive")
 	}
 
 	if c.Pipeline.RingBufferSizeKB < 64 {
-		c.Pipeline.RingBufferSizeKB = 64
+		return errors.New("PIPELINE_RING_BUFFER_SIZE_KB must be at least 64 KB")
+	}
+
+	if strings.TrimSpace(c.Auth.APIKey) == "" {
+		return errors.New("AUTH_API_KEY must not be empty")
+	}
+
+	if strings.TrimSpace(c.Database.URL) == "" && !c.MockMode {
+		return errors.New("DATABASE_URL must not be empty when MOCK_MODE is false")
 	}
 
 	return nil

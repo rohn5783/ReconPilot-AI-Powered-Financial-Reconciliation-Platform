@@ -1,73 +1,106 @@
-import React, { useState } from 'react';
-import { useWorkspaceStore } from '../../store/useWorkspaceStore';
-import { XtermConsole } from '../terminal/XtermConsole';
-import { ChevronUp, ChevronDown, Minimize2, Maximize2, X } from 'lucide-react';
+import React from 'react';
+import {
+  Activity,
+  ChevronDown,
+  ChevronUp,
+  Terminal,
+  CheckCircle2,
+  AlertTriangle,
+} from 'lucide-react';
+import { useReconStore } from '../../store/useReconStore';
 
-interface BottomTelemetryDockProps {
-  scanId: string | null;
-  dryRun?: boolean;
-}
-
-export const BottomTelemetryDock: React.FC<BottomTelemetryDockProps> = ({ scanId, dryRun = true }) => {
-  const { isDockOpen, toggleDock, dockHeight, setDockHeight } = useWorkspaceStore();
-  const [isMaximized, setIsMaximized] = useState(false);
-
-  if (!isDockOpen) return null;
-
-  const currentHeight = isMaximized ? 540 : dockHeight;
+export const BottomTelemetryDock: React.FC = () => {
+  const {
+    isTelemetryDockOpen,
+    toggleTelemetryDock,
+    currentProgress,
+    currentStage,
+    currentMessage,
+    telemetryLogs,
+    isReconciling,
+  } = useReconStore();
 
   return (
-    <div
-      style={{ height: `${currentHeight}px` }}
-      className="w-full shrink-0 flex flex-col bg-carbon-canvas hairline-t relative z-20 transition-all duration-150 ease-out"
-    >
-      {/* Drag & Resize Handle */}
+    <div className="border-t border-ledger-700 bg-ledger-850 select-none">
+      {/* Strip bar */}
       <div
-        className="h-1 bg-carbon-border hover:bg-signal-accent/50 cursor-ns-resize transition-colors w-full"
-        onMouseDown={(e) => {
-          e.preventDefault();
-          const startY = e.clientY;
-          const startHeight = dockHeight;
+        onClick={toggleTelemetryDock}
+        className="h-9 px-4 flex items-center justify-between cursor-pointer hover:bg-ledger-800 transition"
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 text-xs font-mono">
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isReconciling ? 'bg-recon-cyan animate-ping' : 'bg-recon-emerald'
+              }`}
+            />
+            <span className="font-semibold text-white uppercase">{currentStage}</span>
+          </div>
 
-          const onMouseMove = (moveEvent: MouseEvent) => {
-            const deltaY = startY - moveEvent.clientY;
-            const newHeight = Math.max(160, Math.min(650, startHeight + deltaY));
-            setDockHeight(newHeight);
-          };
+          <span className="text-ledger-400 text-xs truncate max-w-xl font-mono">
+            {currentMessage}
+          </span>
+        </div>
 
-          const onMouseUp = () => {
-            window.removeEventListener('mousemove', onMouseMove);
-            window.removeEventListener('mouseup', onMouseUp);
-          };
+        <div className="flex items-center gap-4">
+          {/* Progress bar pill */}
+          <div className="flex items-center gap-2">
+            <div className="w-24 bg-ledger-900 rounded-full h-1.5 overflow-hidden border border-ledger-700">
+              <div
+                className="h-full bg-recon-emerald transition-all duration-300"
+                style={{ width: `${currentProgress}%` }}
+              />
+            </div>
+            <span className="text-[11px] font-mono text-ledger-300 w-9 text-right tabular-nums">
+              {currentProgress.toFixed(0)}%
+            </span>
+          </div>
 
-          window.addEventListener('mousemove', onMouseMove);
-          window.addEventListener('mouseup', onMouseUp);
-        }}
-      />
-
-      {/* Dock Window Controls */}
-      <div className="absolute right-3 top-2 z-30 flex items-center gap-1.5">
-        <button
-          onClick={() => setIsMaximized(!isMaximized)}
-          className="p-1 rounded-micro border border-carbon-border bg-carbon-card hover:bg-carbon-hover text-typography-muted hover:text-typography-primary transition-colors"
-          title={isMaximized ? 'Restore Height' : 'Maximize Terminal'}
-        >
-          {isMaximized ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
-        </button>
-
-        <button
-          onClick={toggleDock}
-          className="p-1 rounded-micro border border-carbon-border bg-carbon-card hover:bg-carbon-hover text-typography-muted hover:text-typography-primary transition-colors"
-          title="Close Terminal Dock"
-        >
-          <X className="w-3 h-3" />
-        </button>
+          <button className="text-ledger-400 hover:text-white">
+            {isTelemetryDockOpen ? (
+              <ChevronDown className="w-4 h-4" />
+            ) : (
+              <ChevronUp className="w-4 h-4" />
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* Embedded Xterm Console */}
-      <div className="flex-1 overflow-hidden">
-        <XtermConsole scanId={scanId} dryRun={dryRun} />
-      </div>
+      {/* Expanded Terminal Log */}
+      {isTelemetryDockOpen && (
+        <div className="h-44 border-t border-ledger-700 bg-ledger-950 p-3 font-mono text-[11px] overflow-y-auto space-y-1">
+          <div className="flex items-center gap-2 text-ledger-400 mb-2 border-b border-ledger-800 pb-1">
+            <Terminal className="w-3.5 h-3.5 text-recon-cyan" />
+            <span className="uppercase text-[10px] tracking-wider">Live Pipeline Telemetry & Event Log</span>
+          </div>
+
+          {telemetryLogs.length === 0 ? (
+            <div className="text-ledger-400 py-4 text-center">
+              No recent stream telemetry events. Run reconciliation to stream logs in real-time.
+            </div>
+          ) : (
+            telemetryLogs.map((evt, idx) => (
+              <div key={idx} className="flex items-start gap-2.5 leading-relaxed">
+                <span className="text-ledger-400 shrink-0">
+                  {new Date(evt.timestamp).toLocaleTimeString()}
+                </span>
+                <span
+                  className={`px-1 py-0.2 rounded text-[10px] uppercase shrink-0 font-semibold ${
+                    evt.stage === 'COMPLETED'
+                      ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                      : evt.stage === 'AI_DIAGNOSIS'
+                      ? 'bg-indigo-950 text-indigo-400 border border-indigo-800'
+                      : 'bg-ledger-800 text-ledger-300'
+                  }`}
+                >
+                  {evt.stage}
+                </span>
+                <span className="text-ledger-200">{evt.message}</span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 };

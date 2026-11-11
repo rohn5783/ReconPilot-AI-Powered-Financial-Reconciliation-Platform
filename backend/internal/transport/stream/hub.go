@@ -1,137 +1,86 @@
 package stream
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
+	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
-
-	"reconpilot/internal/repository"
+	"reconpilot/internal/domain"
 )
 
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Configurable per CORS in router
-	},
+// Hub manages real-time broadcast of pipeline telemetry events to SSE and WebSocket clients.
+type Hub struct {
+	mu          sync.RWMutex
+	subscribers map[chan domain.PipelineTelemetryEvent]bool
+	history     []domain.PipelineTelemetryEvent
+	maxHistory  int
 }
 
-// StreamHandler manages real-time WebSocket and SSE connections for scan telemetry.
-type StreamHandler struct {
-	hub *repository.RedisTelemetryHub
+// NewHub creates an event broadcaster with bounded history.
+func NewHub() *Hub {
+	return &Hub{
+		subscribers: make(map[chan domain.PipelineTelemetryEvent]bool),
+		history:     make([]domain.PipelineTelemetryEvent, 0, 100),
+		maxHistory:  100,
+	}
 }
 
-// NewStreamHandler creates a new StreamHandler.
-func NewStreamHandler(hub *repository.RedisTelemetryHub) *StreamHandler {
-	return &StreamHandler{hub: hub}
-}
+// Subscribe registers a new telemetry subscriber channel and returns an unsubscribe function.
+func (h *Hub) Subscribe() (<-chan domain.PipelineTelemetryEvent, func()) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
 
-// HandleWebSocket upgrades HTTP to WebSocket and streams real-time ANSI terminal logs & events.
-func (h *StreamHandler) HandleWebSocket(c *gin.Context) {
-	scanIDStr := c.Param("id")
-	scanJobID, err := uuid.Parse(scanIDStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan job UUID"})
-		return
-	}
+	ch := make(chan domain.PipelineTelemetryEvent, 64)
+	h.subscribers[ch] = true
 
-	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		return
-	}
-	defer ws.Close()
-
-	eventChan, unsubscribe := h.hub.Subscribe(c.Request.Context(), scanJobID)
-	defer unsubscribe()
-
-	// Initial connection handshake frame
-	initMsg := map[string]interface{}{
-		"type":        "connected",
-		"scan_job_id": scanJobID.String(),
-		"timestamp":   time.Now().Format(time.RFC3339),
-	}
-	initJSON, _ := json.Marshal(initMsg)
-	_ = ws.WriteMessage(websocket.TextMessage, initJSON)
-
-	// Keepalive ping ticker
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	// Reader pump to detect client close
-	go func() {
-		for {
-			if _, _, err := ws.ReadMessage(); err != nil {
-				break
-			}
-		}
-	}()
-
-	for {
+	// Send recent history to new subscriber
+	for _, evt := range h.history {
 		select {
-		case ev, ok := <-eventChan:
-			if !ok {
-				return
-			}
-			data, err := json.Marshal(ev)
-			if err != nil {
-				continue
-			}
-			ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := ws.WriteMessage(websocket.TextMessage, data); err != nil {
-				return
-			}
+		case ch <- evt:
+		default:
+		}
+	}
 
-		case <-ticker.C:
-			ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := ws.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-				return
-			}
+	unsubscribe := func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		if _, ok := h.subscribers[ch]; ok {
+			delete(h.subscribers, ch)
+			close(ch)
+		}
+	}
 
-		case <-c.Request.Context().Done():
-			return
+	return ch, unsubscribe
+}
+
+// Broadcast distributes a telemetry event to all active subscribers.
+func (h *Hub) Broadcast(evt domain.PipelineTelemetryEvent) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if evt.Timestamp.IsZero() {
+		evt.Timestamp = time.Now().UTC()
+	}
+
+	if len(h.history) >= h.maxHistory {
+		h.history = h.history[1:]
+	}
+	h.history = append(h.history, evt)
+
+	for ch := range h.subscribers {
+		select {
+		case ch <- evt:
+		default:
+			// Non-blocking drop if consumer buffer is full
 		}
 	}
 }
 
-// HandleSSE streams telemetry via Server-Sent Events (SSE) for HTTP clients.
-func (h *StreamHandler) HandleSSE(c *gin.Context) {
-	scanIDStr := c.Param("id")
-	scanJobID, err := uuid.Parse(scanIDStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scan job UUID"})
-		return
-	}
-
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Header().Set("Transfer-Encoding", "chunked")
-
-	eventChan, unsubscribe := h.hub.Subscribe(c.Request.Context(), scanJobID)
-	defer unsubscribe()
-
-	c.Stream(func(w io.Writer) bool {
-		select {
-		case ev, ok := <-eventChan:
-			if !ok {
-				return false
-			}
-			data, err := json.Marshal(ev)
-			if err != nil {
-				return true
-			}
-			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, string(data))
-			return true
-
-		case <-c.Request.Context().Done():
-			return false
-		}
-	})
+// History returns a copy of recent events.
+func (h *Hub) History() []domain.PipelineTelemetryEvent {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	res := make([]domain.PipelineTelemetryEvent, len(h.history))
+	copy(res, h.history)
+	return res
 }
 

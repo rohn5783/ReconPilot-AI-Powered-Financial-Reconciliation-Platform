@@ -1,126 +1,165 @@
-import React from 'react';
-import { useWorkspaceStore } from '../../store/useWorkspaceStore';
-import { Scope, ScanJob } from '../../types';
+import React, { useState } from 'react';
 import {
-  Shield,
-  Search,
   Play,
+  RefreshCw,
   Download,
-  Terminal,
+  Search,
+  Database,
+  ChevronDown,
+  Sparkles,
+  FileSpreadsheet,
+  FileText,
   Activity,
-  Layers,
-  ChevronRight,
-  Command as CommandIcon,
 } from 'lucide-react';
+import { useReconStore } from '../../store/useReconStore';
+import { apiClient } from '../../api/client';
 
-interface TopHeaderProps {
-  scopes: Scope[];
-  scans: ScanJob[];
-  onNewScan: () => void;
-}
-
-export const TopHeader: React.FC<TopHeaderProps> = ({ scopes, scans, onNewScan }) => {
+export const TopHeader: React.FC = () => {
   const {
-    activeTab,
-    selectedScanId,
-    setSelectedScanId,
+    isReconciling,
+    triggerReconcile,
+    seedData,
     setCommandPaletteOpen,
-    toggleDock,
-    isDockOpen,
-    searchQuery,
-    setSearchQuery,
-  } = useWorkspaceStore();
+    toggleTelemetryDock,
+    currentStage,
+  } = useReconStore();
 
-  const selectedScan = scans.find((s) => s.id === selectedScanId) || scans[0] || null;
-  const activeScope = scopes.find((s) => s.id === selectedScan?.scope_id) || scopes[0] || null;
+  const [exportOpen, setExportOpen] = useState(false);
 
   return (
-    <header className="h-12 bg-carbon-panel hairline-b flex items-center justify-between px-4 select-none shrink-0 z-30">
-      {/* Left: Brand & Breadcrumbs */}
+    <header className="h-14 border-b border-ledger-700 bg-ledger-850 px-4 flex items-center justify-between select-none">
+      {/* Brand & Environment */}
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 pr-3 hairline-r">
-          <div className="w-6 h-6 rounded-micro bg-signal-accent/10 border border-signal-accent/40 flex items-center justify-center">
-            <Shield className="w-3.5 h-3.5 text-signal-accent" />
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded bg-gradient-to-br from-recon-emerald/20 to-recon-indigo/30 border border-recon-emerald/40 flex items-center justify-center">
+            <Activity className="w-4 h-4 text-recon-emerald animate-pulse" />
           </div>
-          <span className="font-bold tracking-tight text-typography-primary font-mono text-[13px]">
-            RECONPILOT
-          </span>
-          <span className="px-1.5 py-0.2 rounded-micro border border-carbon-border bg-carbon-card text-[9px] font-mono text-typography-muted">
-            v1.0
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold tracking-tight text-white text-sm">ReconPilot</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-ledger-800 text-recon-emerald border border-ledger-700">
+                v1.0
+              </span>
+            </div>
+            <p className="text-[10px] font-mono text-ledger-400">3-Way Financial Reconciliation Engine</p>
+          </div>
+        </div>
+
+        <div className="h-5 w-px bg-ledger-700 mx-2" />
+
+        {/* Live Database/Engine Indicator */}
+        <div className="flex items-center gap-2 px-2.5 py-1 rounded bg-ledger-900 border border-ledger-700 text-xs">
+          <Database className="w-3.5 h-3.5 text-recon-indigo" />
+          <span className="text-ledger-300 font-mono text-[11px]">HYBRID REPO:</span>
+          <span className="inline-flex items-center gap-1.5 text-recon-emerald font-medium text-[11px]">
+            <span className="w-1.5 h-1.5 rounded-full bg-recon-emerald animate-ping" />
+            ACTIVE
           </span>
         </div>
 
-        {/* Dynamic Breadcrumbs */}
-        <div className="flex items-center gap-1.5 text-xs text-typography-muted font-mono">
-          <span className="hover:text-typography-primary cursor-pointer">
-            {activeScope ? activeScope.root_domain : 'targets'}
-          </span>
-          <ChevronRight className="w-3 h-3 text-typography-dim" />
-          <span className="text-typography-secondary font-semibold">
-            {activeTab.toUpperCase()}
-          </span>
-        </div>
-      </div>
-
-      {/* Center: Search & Command Palette Pill */}
-      <div className="flex items-center gap-2 max-w-md w-full mx-4">
-        <div className="relative w-full">
-          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-typography-muted" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search FQDNs, open ports, technologies, CVEs..."
-            className="w-full bg-carbon-card border border-carbon-border rounded-micro pl-8 pr-16 py-1.5 text-xs text-typography-primary placeholder:text-typography-muted focus:outline-none focus:border-signal-accent transition-colors font-mono"
-          />
-          <button
-            onClick={() => setCommandPaletteOpen(true)}
-            className="absolute right-1.5 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded-micro border border-carbon-border bg-carbon-canvas text-[10px] font-mono text-typography-muted flex items-center gap-0.5 hover:text-typography-primary transition-colors"
-          >
-            <CommandIcon className="w-2.5 h-2.5" />
-            <span>K</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Right: Actions, Scan Profile & Telemetry Toggle */}
-      <div className="flex items-center gap-2">
-        {/* Scan Selector dropdown if multiple */}
-        {scans.length > 0 && (
-          <select
-            value={selectedScanId || scans[0]?.id || ''}
-            onChange={(e) => setSelectedScanId(e.target.value)}
-            className="bg-carbon-card border border-carbon-border rounded-micro px-2 py-1 text-xs font-mono text-typography-secondary focus:outline-none focus:border-signal-accent cursor-pointer"
-          >
-            {scans.map((s) => (
-              <option key={s.id} value={s.id}>
-                Scan {s.id.slice(0, 8)} ({s.profile})
-              </option>
-            ))}
-          </select>
-        )}
-
-        {/* Telemetry Console Toggle */}
+        {/* Real-time telemetry dock toggle pill */}
         <button
-          onClick={toggleDock}
-          className={`px-2.5 py-1 rounded-micro border text-xs font-mono flex items-center gap-1.5 transition-colors ${
-            isDockOpen
-              ? 'border-signal-accent/40 bg-signal-accent/10 text-signal-accent'
-              : 'border-carbon-border bg-carbon-card text-typography-muted hover:text-typography-primary'
-          }`}
-          title="Toggle Subprocess Telemetry Console (Hotkey: `)"
+          onClick={toggleTelemetryDock}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-ledger-800 hover:bg-ledger-750 border border-ledger-700 text-ledger-300 hover:text-white text-xs transition"
         >
-          <Terminal className="w-3.5 h-3.5" />
-          <span className="text-[11px] font-medium">Terminal</span>
+          <Activity className="w-3.5 h-3.5 text-recon-cyan" />
+          <span className="font-mono text-[11px] uppercase">{currentStage}</span>
+        </button>
+      </div>
+
+      {/* Center Search / Command Trigger */}
+      <div className="flex-1 max-w-md mx-6">
+        <button
+          onClick={() => setCommandPaletteOpen(true)}
+          className="w-full flex items-center justify-between px-3 py-1.5 rounded-md bg-ledger-900 border border-ledger-700 text-ledger-400 hover:text-ledger-300 hover:border-ledger-600 text-xs transition shadow-inner"
+        >
+          <div className="flex items-center gap-2">
+            <Search className="w-3.5 h-3.5 text-ledger-400" />
+            <span>Search orders, settlements, UTRs, discrepancies...</span>
+          </div>
+          <kbd className="px-1.5 py-0.5 text-[10px] font-mono bg-ledger-800 border border-ledger-700 rounded text-ledger-400">
+            ⌘K
+          </kbd>
+        </button>
+      </div>
+
+      {/* Right Action Bar */}
+      <div className="flex items-center gap-2">
+        {/* Seed Demo Data Button */}
+        <button
+          onClick={() => seedData()}
+          disabled={isReconciling}
+          title="Seed realistic Indian (INR/Razorpay/HDFC) and Global (USD/Stripe/JPMC) demo datasets"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-ledger-800 hover:bg-ledger-750 text-ledger-300 hover:text-white border border-ledger-700 text-xs font-medium transition disabled:opacity-50"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isReconciling ? 'animate-spin' : ''}`} />
+          <span>Seed Demo</span>
         </button>
 
-        {/* New Scan Action Button */}
+        {/* Export Dropdown */}
+        <div className="relative">
+          <button
+            onClick={() => setExportOpen(!exportOpen)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-ledger-800 hover:bg-ledger-750 text-ledger-300 hover:text-white border border-ledger-700 text-xs font-medium transition"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export</span>
+            <ChevronDown className="w-3 h-3 text-ledger-400" />
+          </button>
+
+          {exportOpen && (
+            <div className="absolute right-0 mt-1 w-48 bg-ledger-850 border border-ledger-700 rounded-md shadow-2xl py-1 z-50 text-xs">
+              <button
+                onClick={() => {
+                  apiClient.exportReport('csv', 'traces');
+                  setExportOpen(false);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-ledger-300 hover:text-white hover:bg-ledger-800 text-left"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-recon-emerald" />
+                <span>3-Way Traces (CSV)</span>
+              </button>
+              <button
+                onClick={() => {
+                  apiClient.exportReport('csv', 'discrepancies');
+                  setExportOpen(false);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-ledger-300 hover:text-white hover:bg-ledger-800 text-left"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-recon-crimson" />
+                <span>Discrepancy Audit (CSV)</span>
+              </button>
+              <button
+                onClick={() => {
+                  apiClient.exportReport('json', 'traces');
+                  setExportOpen(false);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-ledger-300 hover:text-white hover:bg-ledger-800 text-left"
+              >
+                <FileText className="w-4 h-4 text-recon-indigo" />
+                <span>Full Ledger (JSON)</span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Primary Run Reconcile Trigger */}
         <button
-          onClick={onNewScan}
-          className="px-3 py-1 rounded-micro bg-signal-accent text-carbon-canvas font-semibold text-xs font-mono flex items-center gap-1.5 hover:bg-sky-400 active:bg-sky-500 transition-colors shadow-[0_0_12px_rgba(56,189,248,0.2)]"
+          onClick={() => triggerReconcile()}
+          disabled={isReconciling}
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold shadow-lg shadow-emerald-950/40 border border-emerald-400/30 transition disabled:opacity-50"
         >
-          <Play className="w-3 h-3 fill-carbon-canvas" />
-          <span>Launch Scan</span>
+          {isReconciling ? (
+            <>
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              <span>Matching...</span>
+            </>
+          ) : (
+            <>
+              <Play className="w-3.5 h-3.5 fill-current" />
+              <span>Run Reconcile</span>
+            </>
+          )}
         </button>
       </div>
     </header>

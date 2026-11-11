@@ -3,170 +3,167 @@ package ai
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"math/rand"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"google.golang.org/genai"
 
-	"reconpilot/internal/config"
 	"reconpilot/internal/domain"
 )
 
-// GeminiAnalyst synthesizes raw EASM recon telemetry into structured industrial briefings.
-type GeminiAnalyst struct {
+// Diagnostician diagnoses financial discrepancies and synthesizes merchant dispute tickets.
+type Diagnostician interface {
+	Diagnose(ctx context.Context, discrepancy *domain.Discrepancy) (*domain.AIDiagnosis, error)
+	DiagnoseBatch(ctx context.Context, discrepancies []domain.Discrepancy) ([]domain.Discrepancy, error)
+}
+
+// Client implements Diagnostician using Google GenAI SDK (gemini-2.5-flash) with deterministic fallback.
+type Client struct {
 	apiKey      string
 	model       string
-	client      *genai.Client
-	optimizer   *TokenOptimizer
-	fallback    *FallbackGenerator
-	maxTokens   int
-	temperature float64
+	genaiClient *genai.Client
+	mu          sync.RWMutex
 }
 
-// NewGeminiAnalyst initializes the Google GenAI SDK client or fallback engine.
-func NewGeminiAnalyst(cfg *config.AIConfig) *GeminiAnalyst {
-	analyst := &GeminiAnalyst{
-		apiKey:      cfg.GeminiAPIKey,
-		model:       cfg.GeminiModel,
-		optimizer:   NewTokenOptimizer(),
-		fallback:    NewFallbackGenerator(),
-		maxTokens:   cfg.MaxTokens,
-		temperature: cfg.Temperature,
+// NewClient initializes a Google Gemini 2.5 Flash AI Diagnostician.
+func NewClient(ctx context.Context, apiKey, model string) (*Client, error) {
+	if model == "" {
+		model = "gemini-2.5-flash"
 	}
 
-	if analyst.model == "" {
-		analyst.model = "gemini-2.5-flash"
+	c := &Client{
+		apiKey: apiKey,
+		model:  model,
 	}
 
-	if cfg.GeminiAPIKey != "" {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		client, err := genai.NewClient(ctx, &genai.ClientConfig{
-			APIKey:  cfg.GeminiAPIKey,
-			Backend: genai.BackendGeminiAPI,
-		})
+	if strings.TrimSpace(apiKey) != "" && apiKey != "<KEY_HERE>" {
+		cfg := &genai.ClientConfig{
+			APIKey: apiKey,
+		}
+		gClient, err := genai.NewClient(ctx, cfg)
 		if err == nil {
-			analyst.client = client
+			c.genaiClient = gClient
 		}
 	}
 
-	return analyst
+	return c, nil
 }
 
-// GenerateReport synthesizes executive summaries, risk scores, and remediation playbooks.
-func (a *GeminiAnalyst) GenerateReport(
-	ctx context.Context,
-	scanJobID uuid.UUID,
-	targetDomain string,
-	assets []*domain.Asset,
-	findings []*domain.Finding,
-	drift *domain.DriftAnalysis,
-) (*domain.AIReport, error) {
-	compactPayload := a.optimizer.Optimize(targetDomain, assets, findings, drift)
-
-	// If no Gemini API key or client not initialized, use deterministic rule-based fallback
-	if a.client == nil || a.apiKey == "" {
-		return a.fallback.Generate(scanJobID, compactPayload), nil
+// Diagnose synthesizes an AI root cause analysis and dispute ticket for a discrepancy.
+func (c *Client) Diagnose(ctx context.Context, d *domain.Discrepancy) (*domain.AIDiagnosis, error) {
+	if d == nil {
+		return nil, fmt.Errorf("discrepancy cannot be nil")
 	}
 
-	// Prepare compact JSON prompt
-	payloadBytes, _ := json.Marshal(compactPayload)
+	// If no Gemini client is available or in offline mode, use deterministic rule-based engine
+	if c.genaiClient == nil || c.apiKey == "" || c.apiKey == "<KEY_HERE>" {
+		return RuleBasedDiagnose(d), nil
+	}
 
-	prompt := fmt.Sprintf(`You are a Principal Application Security Architect and Cloud Infrastructure Hardening Specialist.
-Analyze the following External Attack Surface Management (EASM) scan telemetry for target domain "%s" and produce a strictly structured JSON executive briefing and remediation playbook.
+	prompt := c.buildPrompt(d)
 
-INPUT SCAN TELEMETRY:
+	// Call Gemini with a 15-second timeout
+	callCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	resp, err := c.genaiClient.Models.GenerateContent(callCtx, c.model, genai.Text(prompt), &genai.GenerateContentConfig{
+		ResponseMIMEType: "application/json",
+	})
+	if err != nil {
+		// Log and gracefully fall back to deterministic engine
+		return RuleBasedDiagnose(d), nil
+	}
+
+	responseText := resp.Text()
+	if responseText == "" {
+		return RuleBasedDiagnose(d), nil
+	}
+
+	// Clean Markdown code fence if model wrapped JSON in ```json ... ```
+	cleaned := strings.TrimSpace(responseText)
+	cleaned = strings.TrimPrefix(cleaned, "```json")
+	cleaned = strings.TrimPrefix(cleaned, "```")
+	cleaned = strings.TrimSuffix(cleaned, "```")
+	cleaned = strings.TrimSpace(cleaned)
+
+	var diag domain.AIDiagnosis
+	if err := json.Unmarshal([]byte(cleaned), &diag); err != nil {
+		return RuleBasedDiagnose(d), nil
+	}
+
+	if diag.ConfidenceScore <= 0 || diag.ConfidenceScore > 100 {
+		diag.ConfidenceScore = 92
+	}
+
+	return &diag, nil
+}
+
+// DiagnoseBatch analyzes a slice of discrepancies concurrently.
+func (c *Client) DiagnoseBatch(ctx context.Context, discrepancies []domain.Discrepancy) ([]domain.Discrepancy, error) {
+	res := make([]domain.Discrepancy, len(discrepancies))
+	copy(res, discrepancies)
+
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 5) // max 5 concurrent Gemini calls
+
+	for i := range res {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			diag, err := c.Diagnose(ctx, &res[idx])
+			if err == nil && diag != nil {
+				res[idx].AIDiagnosis = diag
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	return res, nil
+}
+
+func (c *Client) buildPrompt(d *domain.Discrepancy) string {
+	evidenceJSON, _ := json.MarshalIndent(d.RawEvidence, "", "  ")
+
+	return fmt.Sprintf(`You are a Senior Fintech Forensic Accountant and Payment Operations Auditor.
+Analyze the following financial reconciliation discrepancy detected between an internal order ledger, a payment gateway settlement, and a bank nodal account.
+
+DISCREPANCY SPECIFICATION:
+- Discrepancy Level: %s
+- Discrepancy Classification: %s
+- Severity: %s
+- Expected Amount: ₹%s
+- Actual Amount: ₹%s
+- Mismatch Variance: ₹%s
+
+EVIDENCE DOSSIER (FORMULAS & LEDGER RECORDS):
 %s
 
-INSTRUCTIONS:
-1. "overall_risk_score": integer 0-100 reflecting external posture.
-2. "executive_summary": 2-3 concise paragraphs evaluating posture, critical exposures, exposed administrative/database services, and immediate recommendations. Strictly avoid corporate fluff.
-3. "attack_surface_drift_analysis": summarize new vs removed hosts and open ports from the input drift.
-4. "prioritized_findings": array of findings ranked from Rank 1 upwards, including:
-   - "rank": integer
-   - "title": string
-   - "severity": "critical"|"high"|"medium"|"low"|"info"
-   - "affected_asset": string
-   - "exploit_probability": string (e.g. "Confirmed Remote / High", "Active Exploit Available", "Opportunistic / Medium")
-   - "impact_analysis": string
-   - "root_cause": string
-5. "remediation_playbook": array of actionable defensive hardening playbooks, including:
-   - "title": string
-   - "target_category": string (e.g. "Nginx", "Cloudflare", "AWS_SG", "Docker", "TLS", "Firewall")
-   - "severity": string
-   - "config_snippet": production-ready config file snippet (e.g. nginx.conf block, aws cli command, redis.conf)
-   - "explanation": why this defensive control fixes the exposure
-   - "validation_steps": array of verification shell commands (e.g. curl, nmap, openssl)
+TASK:
+Produce an institutional root cause analysis and a formal dispute ticket for the payment gateway or bank operations team.
 
-Respond ONLY with a valid JSON object matching the required schema. Do not enclose in markdown code blocks.`, targetDomain, string(payloadBytes))
-
-	// Execute with exponential backoff and jitter
-	var lastErr error
-	backoff := 1 * time.Second
-
-	for attempt := 0; attempt < 3; attempt++ {
-		callCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-		genConfig := &genai.GenerateContentConfig{
-			ResponseMIMEType: "application/json",
-		}
-		if a.temperature > 0 {
-			temp := float32(a.temperature)
-			genConfig.Temperature = &temp
-		}
-
-		res, err := a.client.Models.GenerateContent(callCtx, a.model, genai.Text(prompt), genConfig)
-		cancel()
-
-		if err == nil && res != nil {
-			responseText := strings.TrimSpace(res.Text())
-			// Strip possible markdown fences if returned
-			responseText = strings.TrimPrefix(responseText, "```json")
-			responseText = strings.TrimPrefix(responseText, "```")
-			responseText = strings.TrimSuffix(responseText, "```")
-			responseText = strings.TrimSpace(responseText)
-
-			var report domain.AIReport
-			if unmarshalErr := json.Unmarshal([]byte(responseText), &report); unmarshalErr == nil {
-				report.ID = uuid.New()
-				report.ScanJobID = scanJobID
-				report.ModelVersion = a.model
-				report.IsFallback = false
-				report.GeneratedAt = time.Now()
-				if res.UsageMetadata != nil {
-					report.TokensUsed = int(res.UsageMetadata.TotalTokenCount)
-				}
-				return &report, nil
-			} else {
-				lastErr = fmt.Errorf("failed to unmarshal Gemini JSON output: %w", unmarshalErr)
-			}
-		} else {
-			lastErr = err
-		}
-
-		// Wait backoff with jitter before retry
-		jitter := time.Duration(rand.Int63n(int64(500 * time.Millisecond)))
-		select {
-		case <-time.After(backoff + jitter):
-			backoff *= 2
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-	}
-
-	// If all retries exhausted, return graceful fallback report with error logged
-	if errors.Is(lastErr, context.Canceled) {
-		return nil, lastErr
-	}
-
-	fallbackReport := a.fallback.Generate(scanJobID, compactPayload)
-	fallbackReport.ExecutiveSummary = fmt.Sprintf("[Note: AI synthesis fell back to deterministic engine due to: %v]\n\n%s",
-		lastErr, fallbackReport.ExecutiveSummary)
-
-	return fallbackReport, nil
+STRICT JSON OUTPUT FORMAT (Return ONLY this JSON, no preamble):
+{
+  "root_cause_summary": "Precise 1-2 sentence technical explanation of why this financial divergence occurred.",
+  "discrepancy_category": "Short 2-5 word financial category (e.g. Gateway MDR Overcharge, Uncredited Remittance)",
+  "confidence_score": 95,
+  "recommended_actions": [
+    "Action step 1",
+    "Action step 2"
+  ],
+  "draft_dispute_ticket": "Full professional dispute ticket ready to copy-paste to Razorpay/Stripe/Bank helpdesk including references, exact formulas, numbers, and demanded resolution."
+}`,
+		d.DiscrepancyLevel,
+		d.DiscrepancyType,
+		d.Severity,
+		d.ExpectedAmount.StringFixed(4),
+		d.ActualAmount.StringFixed(4),
+		d.MismatchAmount.StringFixed(4),
+		string(evidenceJSON),
+	)
 }
 

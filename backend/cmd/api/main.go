@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,86 +12,106 @@ import (
 
 	"reconpilot/internal/ai"
 	"reconpilot/internal/config"
-	"reconpilot/internal/orchestrator"
+	"reconpilot/internal/matching"
 	"reconpilot/internal/repository"
-	transportHttp "reconpilot/internal/transport/http"
+	"reconpilot/internal/service"
+	transporthttp "reconpilot/internal/transport/http"
 	"reconpilot/internal/transport/stream"
-	"reconpilot/pkg/runner"
+	"reconpilot/pkg/money"
 )
 
 func main() {
-	log.Println("\x1b[35;1m[RECONPILOT]\x1b[0m Initializing EASM Platform & Autonomous Security Engine...")
+	log.Println("==============================================================================")
+	log.Println(" ReconPilot: 3-Way Financial Reconciliation & AI Discrepancy Platform")
+	log.Println(" Version: 1.0.0 | High-Throughput Golang + Exact Decimal Arithmetic Engine")
+	log.Println("==============================================================================")
 
-	// 1. Load typed configuration
+	// 1. Load typed environment configuration
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("\x1b[31m[CONFIG_ERROR]\x1b[0m Failed to load configuration: %v", err)
+		log.Fatalf("[FATAL] Configuration load failure: %v", err)
 	}
+	log.Printf("[CONFIG] Port=%d | MockMode=%t | GeminiModel=%s | StrictSchema=%t",
+		cfg.Server.Port, cfg.MockMode, cfg.AI.GeminiModel, cfg.Security.EnforceStrictSchema)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// 2. Connect to MongoDB (with offline / mock tolerance)
-	db, err := repository.NewMongoDB(ctx, &cfg.Database)
+	// 2. Initialize persistence repository (PostgreSQL or In-Memory Mock)
+	var repo repository.ReconciliationRepository
+
+	if cfg.MockMode || cfg.Database.URL == "" {
+		log.Println("[STORAGE] MOCK_MODE=true or empty DATABASE_URL: Starting in-memory mock repository with pre-seeded data")
+		repo = repository.NewMockRepository(true)
+	} else {
+		log.Printf("[STORAGE] Connecting to PostgreSQL database...")
+		pgRepo, err := repository.NewPostgresRepository(ctx, cfg.Database.URL)
+		if err != nil {
+			log.Printf("[WARN] Failed to connect to PostgreSQL (%v). Seamlessly falling back to in-memory mock repository.", err)
+			repo = repository.NewMockRepository(true)
+		} else {
+			log.Println("[STORAGE] Connected to PostgreSQL with connection pool successfully.")
+			repo = pgRepo
+		}
+	}
+	defer repo.Close()
+
+	// 3. Initialize AI Diagnostician (Google GenAI Gemini 2.5 Flash + Fallback)
+	aiClient, err := ai.NewClient(ctx, cfg.AI.GeminiAPIKey, cfg.AI.GeminiModel)
 	if err != nil {
-		log.Printf("\x1b[33m[WARN]\x1b[0m MongoDB connection degraded: %v. Running in mock/offline mode.", err)
+		log.Printf("[WARN] Gemini AI client initialization warning: %v. Using institutional fallback.", err)
 	} else {
-		defer db.Close(context.Background())
-		log.Println("\x1b[32m[DB]\x1b[0m MongoDB client initialized.")
+		log.Printf("[AI] Gemini AI Diagnostician initialized successfully.")
 	}
 
-	// 3. Connect to Redis Pub/Sub Telemetry Hub
-	hub := repository.NewRedisTelemetryHub(ctx, &cfg.Redis)
-	log.Println("\x1b[32m[STREAM]\x1b[0m Telemetry streaming hub active.")
-
-	// 4. Initialize Hardened Subprocess Runner & Modules
-	safeRunner := runner.NewSafeRunner(cfg.Pipeline.StageTimeout, cfg.Pipeline.RingBufferSizeKB)
-
-	// 5. Initialize Pipeline Orchestrator & AI Analyst
-	orch := orchestrator.NewPipelineOrchestrator(cfg, db, hub, safeRunner)
-	analyst := ai.NewGeminiAnalyst(&cfg.AI)
-	if cfg.AI.GeminiAPIKey != "" {
-		log.Printf("\x1b[32m[AI]\x1b[0m Google GenAI SDK initialized (model: %s).", cfg.AI.GeminiModel)
-	} else {
-		log.Println("\x1b[33m[AI:OFFLINE]\x1b[0m GEMINI_API_KEY not set; using deterministic rule-based synthesis.")
+	// 4. Initialize 3-Way Matching Engine
+	engineCfg := matching.EngineConfig{
+		DefaultFeeRate: money.FromStringOrZero("0.0200"),
+		DefaultTaxRate: money.FromStringOrZero("0.1800"),
+		FeeTolerance:   money.FromStringOrZero("0.0100"),
+		MaxConcurrency: cfg.Pipeline.MaxConcurrentBatches,
 	}
+	matchingEngine := matching.NewEngine(engineCfg)
 
-	// 6. Build HTTP Handlers & Router
-	apiHandler := transportHttp.NewAPIHandler(db, orch, analyst)
-	streamHandler := stream.NewStreamHandler(hub)
-	router := transportHttp.SetupRouter(cfg, apiHandler, streamHandler)
+	// 5. Initialize SSE Telemetry Broadcaster Hub
+	hub := stream.NewHub()
 
-	// 7. Start HTTP Server
-	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+	// 6. Initialize Orchestrator and Export Services
+	reconSvc := service.NewReconciliationService(repo, matchingEngine, aiClient, hub)
+	exportSvc := service.NewExportService()
+
+	// 7. Initialize Gin HTTP Router
+	router := transporthttp.NewRouter(cfg, reconSvc, exportSvc)
+
 	srv := &http.Server{
-		Addr:         addr,
+		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler:      router,
-		ReadTimeout:  cfg.Server.ReadTimeout,
-		WriteTimeout: cfg.Server.WriteTimeout,
-		IdleTimeout:  cfg.Server.IdleTimeout,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
+	// 8. Start server in goroutine
 	go func() {
-		log.Printf("\x1b[32;1m[SERVER_READY]\x1b[0m ReconPilot API listening at http://%s", addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("\x1b[31m[SERVER_FATAL]\x1b[0m ListenAndServe failed: %v", err)
+		log.Printf("[SERVER] ReconPilot HTTP & SSE API server listening on http://localhost:%d", cfg.Server.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("[FATAL] HTTP server failed to start: %v", err)
 		}
 	}()
 
-	// 8. Graceful Shutdown
+	// 9. Graceful shutdown on OS interrupt
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
 	<-quit
 
-	log.Println("\x1b[33m[SHUTDOWN]\x1b[0m Gracefully shutting down ReconPilot server...")
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	log.Println("[SERVER] Shutting down ReconPilot server gracefully...")
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Fatalf("\x1b[31m[SHUTDOWN_ERROR]\x1b[0m Server forced to terminate: %v", err)
+		log.Fatalf("[FATAL] Server forced to shutdown: %v", err)
 	}
 
-	log.Println("\x1b[32m[SHUTDOWN_COMPLETE]\x1b[0m ReconPilot exited cleanly.")
+	log.Println("[SERVER] Server exited cleanly.")
 }
 

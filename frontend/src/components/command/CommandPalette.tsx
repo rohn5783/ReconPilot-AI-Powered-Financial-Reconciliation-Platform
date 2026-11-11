@@ -1,181 +1,225 @@
 import React, { useEffect } from 'react';
 import { Command } from 'cmdk';
-import { useWorkspaceStore } from '../../store/useWorkspaceStore';
 import {
-  Search,
-  Terminal,
   Play,
+  RefreshCw,
+  Table2,
   Layers,
-  Network,
-  Bot,
-  Shield,
-  Download,
   AlertTriangle,
-  Server,
+  UploadCloud,
+  FileSpreadsheet,
+  FileText,
+  Activity,
+  CheckCircle2,
+  X,
 } from 'lucide-react';
+import { useReconStore } from '../../store/useReconStore';
+import { apiClient } from '../../api/client';
 
 export const CommandPalette: React.FC = () => {
   const {
-    commandPaletteOpen,
+    isCommandPaletteOpen,
     setCommandPaletteOpen,
-    setActiveTab,
-    toggleDock,
-    setSeverityFilter,
-    setSearchQuery,
-    selectedScanId,
-  } = useWorkspaceStore();
+    setActiveView,
+    setStatusFilter,
+    triggerReconcile,
+    seedData,
+    toggleTelemetryDock,
+  } = useReconStore();
 
   useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if ((e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey)) {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
-        setCommandPaletteOpen(!commandPaletteOpen);
+        setCommandPaletteOpen(!isCommandPaletteOpen);
+      }
+      if (e.key === 'Escape' && isCommandPaletteOpen) {
+        setCommandPaletteOpen(false);
       }
     };
-    document.addEventListener('keydown', down);
-    return () => document.removeEventListener('keydown', down);
-  }, [commandPaletteOpen, setCommandPaletteOpen]);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isCommandPaletteOpen, setCommandPaletteOpen]);
 
-  if (!commandPaletteOpen) return null;
+  if (!isCommandPaletteOpen) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-start justify-center pt-24 px-4"
-      onClick={() => setCommandPaletteOpen(false)}
-    >
-      <div onClick={(e) => e.stopPropagation()} className="w-full max-w-xl">
-        <Command label="Global Command Palette">
-          <div className="flex items-center gap-2 px-3 hairline-b">
-            <Search className="w-4 h-4 text-typography-muted shrink-0" />
-            <Command.Input autoFocus placeholder="Type a command, target domain, or hotkey..." />
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-start justify-center pt-24 p-4 animate-fade-in">
+      <div className="w-full max-w-xl bg-ledger-850 border border-ledger-700 rounded-xl shadow-2xl overflow-hidden flex flex-col">
+        <Command className="w-full">
+          {/* Search Header */}
+          <div className="flex items-center px-4 border-b border-ledger-700">
+            <Command.Input
+              autoFocus
+              placeholder="Type a command, query an order, or run reconciliation..."
+              className="w-full py-3 bg-transparent text-sm text-white placeholder-ledger-400 focus:outline-none font-mono"
+            />
+            <button
+              onClick={() => setCommandPaletteOpen(false)}
+              className="p-1 text-ledger-400 hover:text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
 
-          <Command.List className="max-h-80 overflow-y-auto p-2">
-            <Command.Empty className="p-4 text-xs text-center text-typography-muted">
-              No matching commands or assets found.
+          {/* List Options */}
+          <Command.List className="max-h-80 overflow-y-auto p-2 space-y-1 text-xs">
+            <Command.Empty className="py-6 text-center text-ledger-400">
+              No matching commands found.
             </Command.Empty>
 
-            {/* Navigation & Workspace Views */}
-            <Command.Group heading="Workspace Views">
+            {/* Quick Actions */}
+            <Command.Group heading="Engine Actions" className="text-[10px] font-mono uppercase text-ledger-400 px-2 py-1.5">
               <Command.Item
                 onSelect={() => {
-                  setActiveTab('inventory');
+                  triggerReconcile();
                   setCommandPaletteOpen(false);
                 }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-ledger-200 hover:text-white hover:bg-ledger-800 cursor-pointer"
               >
-                <Layers className="w-3.5 h-3.5 mr-2 text-signal-accent" />
-                <span>Asset Inventory & Drift Explorer</span>
-                <span className="ml-auto text-[10px] font-mono text-typography-muted">1</span>
+                <Play className="w-4 h-4 text-recon-emerald fill-current" />
+                <span>Run 3-Way Reconciliation Engine</span>
               </Command.Item>
 
               <Command.Item
                 onSelect={() => {
-                  setActiveTab('topology');
+                  seedData();
                   setCommandPaletteOpen(false);
                 }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-ledger-200 hover:text-white hover:bg-ledger-800 cursor-pointer"
               >
-                <Network className="w-3.5 h-3.5 mr-2 text-signal-accent" />
-                <span>Attack Surface Topology Graph</span>
-                <span className="ml-auto text-[10px] font-mono text-typography-muted">2</span>
+                <RefreshCw className="w-4 h-4 text-recon-indigo" />
+                <span>Reset & Seed Demo Financial Ledger (INR/USD)</span>
               </Command.Item>
 
               <Command.Item
                 onSelect={() => {
-                  setActiveTab('analyst');
+                  toggleTelemetryDock();
                   setCommandPaletteOpen(false);
                 }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-ledger-200 hover:text-white hover:bg-ledger-800 cursor-pointer"
               >
-                <Bot className="w-3.5 h-3.5 mr-2 text-signal-accent" />
-                <span>AI Security Analyst & Remediation Workstation</span>
-                <span className="ml-auto text-[10px] font-mono text-typography-muted">3</span>
-              </Command.Item>
-
-              <Command.Item
-                onSelect={() => {
-                  setActiveTab('scopes');
-                  setCommandPaletteOpen(false);
-                }}
-              >
-                <Shield className="w-3.5 h-3.5 mr-2 text-signal-accent" />
-                <span>Scope Registry & Ownership Verification</span>
-                <span className="ml-auto text-[10px] font-mono text-typography-muted">4</span>
+                <Activity className="w-4 h-4 text-recon-cyan" />
+                <span>Toggle Live Pipeline Telemetry Stream</span>
               </Command.Item>
             </Command.Group>
 
-            {/* Tactical Recon Filters */}
-            <Command.Group heading="High-Risk Exposure Filters">
+            {/* Navigation Views */}
+            <Command.Group heading="Navigation" className="text-[10px] font-mono uppercase text-ledger-400 px-2 py-1.5 mt-2">
               <Command.Item
                 onSelect={() => {
-                  setSeverityFilter('critical');
-                  setActiveTab('inventory');
+                  setActiveView('explorer');
                   setCommandPaletteOpen(false);
                 }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-ledger-200 hover:text-white hover:bg-ledger-800 cursor-pointer"
               >
-                <AlertTriangle className="w-3.5 h-3.5 mr-2 text-signal-critical" />
-                <span>Filter Critical Severity Findings Only</span>
+                <Table2 className="w-4 h-4 text-ledger-400" />
+                <span>3-Way Trace Ledger Explorer</span>
               </Command.Item>
 
               <Command.Item
                 onSelect={() => {
-                  setSearchQuery('6379');
-                  setActiveTab('inventory');
+                  setActiveView('batches');
                   setCommandPaletteOpen(false);
                 }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-ledger-200 hover:text-white hover:bg-ledger-800 cursor-pointer"
               >
-                <Server className="w-3.5 h-3.5 mr-2 text-signal-critical" />
-                <span>Search Exposed Redis Ports (6379)</span>
+                <Layers className="w-4 h-4 text-recon-cyan" />
+                <span>Level-2 Payout Batches & UTR Clearing</span>
               </Command.Item>
 
               <Command.Item
                 onSelect={() => {
-                  setSearchQuery('22');
-                  setActiveTab('inventory');
+                  setActiveView('discrepancies');
                   setCommandPaletteOpen(false);
                 }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-ledger-200 hover:text-white hover:bg-ledger-800 cursor-pointer"
               >
-                <Server className="w-3.5 h-3.5 mr-2 text-signal-high" />
-                <span>Search Exposed SSH Ports (22)</span>
+                <AlertTriangle className="w-4 h-4 text-recon-crimson" />
+                <span>Discrepancy Audit Dossiers & AI Tickets</span>
+              </Command.Item>
+
+              <Command.Item
+                onSelect={() => {
+                  setActiveView('upload');
+                  setCommandPaletteOpen(false);
+                }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-ledger-200 hover:text-white hover:bg-ledger-800 cursor-pointer"
+              >
+                <UploadCloud className="w-4 h-4 text-recon-indigo" />
+                <span>Ingest Custom Settlement CSV Files</span>
               </Command.Item>
             </Command.Group>
 
-            {/* Pipeline Controls & Exports */}
-            <Command.Group heading="Actions & Telemetry">
+            {/* Status Filters */}
+            <Command.Group heading="Quick Filters" className="text-[10px] font-mono uppercase text-ledger-400 px-2 py-1.5 mt-2">
               <Command.Item
                 onSelect={() => {
-                  toggleDock();
+                  setActiveView('explorer');
+                  setStatusFilter('discrepancy');
                   setCommandPaletteOpen(false);
                 }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-ledger-200 hover:text-white hover:bg-ledger-800 cursor-pointer"
               >
-                <Terminal className="w-3.5 h-3.5 mr-2 text-signal-nominal" />
-                <span>Toggle Subprocess Telemetry Dock</span>
-                <span className="ml-auto text-[10px] font-mono text-typography-muted">`</span>
+                <AlertTriangle className="w-4 h-4 text-recon-crimson" />
+                <span>Filter: Discrepancies Only</span>
               </Command.Item>
 
-              {selectedScanId && (
-                <>
-                  <Command.Item
-                    onSelect={() => {
-                      window.open(`/api/v1/scans/${selectedScanId}/export/markdown`, '_blank');
-                      setCommandPaletteOpen(false);
-                    }}
-                  >
-                    <Download className="w-3.5 h-3.5 mr-2 text-typography-primary" />
-                    <span>Download Assessment Briefing (Markdown)</span>
-                  </Command.Item>
+              <Command.Item
+                onSelect={() => {
+                  setActiveView('explorer');
+                  setStatusFilter('reconciled');
+                  setCommandPaletteOpen(false);
+                }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-ledger-200 hover:text-white hover:bg-ledger-800 cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4 text-recon-emerald" />
+                <span>Filter: Reconciled Matches Only</span>
+              </Command.Item>
+            </Command.Group>
 
-                  <Command.Item
-                    onSelect={() => {
-                      window.open(`/api/v1/scans/${selectedScanId}/export/json`, '_blank');
-                      setCommandPaletteOpen(false);
-                    }}
-                  >
-                    <Download className="w-3.5 h-3.5 mr-2 text-typography-primary" />
-                    <span>Download Full Scan Data (JSON)</span>
-                  </Command.Item>
-                </>
-              )}
+            {/* Export Reports */}
+            <Command.Group heading="Export Reports" className="text-[10px] font-mono uppercase text-ledger-400 px-2 py-1.5 mt-2">
+              <Command.Item
+                onSelect={() => {
+                  apiClient.exportReport('csv', 'traces');
+                  setCommandPaletteOpen(false);
+                }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-ledger-200 hover:text-white hover:bg-ledger-800 cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-recon-emerald" />
+                <span>Download 3-Way Trace Audit (CSV)</span>
+              </Command.Item>
+
+              <Command.Item
+                onSelect={() => {
+                  apiClient.exportReport('csv', 'discrepancies');
+                  setCommandPaletteOpen(false);
+                }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-ledger-200 hover:text-white hover:bg-ledger-800 cursor-pointer"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-recon-crimson" />
+                <span>Download Discrepancies Dispute Report (CSV)</span>
+              </Command.Item>
+
+              <Command.Item
+                onSelect={() => {
+                  apiClient.exportReport('json', 'traces');
+                  setCommandPaletteOpen(false);
+                }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-ledger-200 hover:text-white hover:bg-ledger-800 cursor-pointer"
+              >
+                <FileText className="w-4 h-4 text-recon-indigo" />
+                <span>Download Full Reconciled Ledger (JSON)</span>
+              </Command.Item>
             </Command.Group>
           </Command.List>
+
+          {/* Footer Helper */}
+          <div className="p-2 border-t border-ledger-700 bg-ledger-900/60 flex items-center justify-between text-[11px] font-mono text-ledger-400 px-3">
+            <span>Navigation: ↑ ↓ | Select: ↵</span>
+            <span>ESC to close</span>
+          </div>
         </Command>
       </div>
     </div>

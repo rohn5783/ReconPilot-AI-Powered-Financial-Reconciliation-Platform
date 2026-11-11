@@ -1,189 +1,143 @@
-export type VerificationStatus = 'pending_verification' | 'verified' | 'revoked';
-export type ScanStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled';
-export type ScanProfile = 'passive' | 'standard' | 'deep';
-export type StageName = 'idle' | 'discovery' | 'probing' | 'portscan' | 'auditor' | 'ai_synthesis' | 'completed';
-export type StageStatus = 'pending' | 'running' | 'done' | 'failed' | 'skipped';
-export type FindingSeverity = 'info' | 'low' | 'medium' | 'high' | 'critical';
-export type FindingStatus = 'active' | 'remediated' | 'acknowledged';
-export type DriftChangeType =
-  | 'new_host'
-  | 'removed_host'
-  | 'port_opened'
-  | 'port_closed'
-  | 'tech_changed'
-  | 'ip_changed'
-  | 'finding_added'
-  | 'finding_resolved';
+export type OrderStatus = 'CAPTURED' | 'PENDING' | 'FAILED' | 'REFUNDED';
+export type PayoutStatus = 'SETTLED' | 'PROCESSED' | 'PENDING' | 'FAILED';
 
-export interface Scope {
+export type DiscrepancyLevel = 'LEVEL_1_ORDER_PG' | 'LEVEL_2_PG_BANK';
+
+export type DiscrepancyType =
+  | 'FEE_OVERCHARGE'
+  | 'TAX_CALCULATION_ERROR'
+  | 'ORDER_MISSING_IN_PG'
+  | 'PG_ORPHAN_TXN'
+  | 'CAPTURE_STATUS_MISMATCH'
+  | 'GROSS_AMOUNT_MISMATCH'
+  | 'UNSETTLED_PAYOUT'
+  | 'BANK_MISSING'
+  | 'PAYOUT_SHORTFALL'
+  | 'PAYOUT_SURPLUS';
+
+export type DiscrepancySeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+export type DiscrepancyStatus = 'OPEN' | 'IN_DISPUTE' | 'RESOLVED' | 'WRITTEN_OFF';
+
+export interface RawEvidence {
+  order?: {
+    order_id: string;
+    customer_id: string;
+    gross_amount: string;
+    currency: string;
+    order_status: OrderStatus;
+    created_at: string;
+  };
+  pg_settlement?: {
+    pg_txn_id: string;
+    order_id: string;
+    gross_amount: string;
+    pg_fee: string;
+    tax: string;
+    net_amount: string;
+    payout_id: string;
+    payout_status: PayoutStatus;
+    settled_at: string;
+  };
+  bank_statement?: {
+    bank_txn_id: string;
+    utr_number: string;
+    credit_amount: string;
+    description: string;
+    transaction_date: string;
+  };
+  batch_settlements?: Array<{
+    pg_txn_id: string;
+    order_id: string;
+    gross_amount: string;
+    pg_fee: string;
+    tax: string;
+    net_amount: string;
+    payout_id: string;
+    payout_status: PayoutStatus;
+    settled_at: string;
+  }>;
+  expected_formula: string;
+  actual_formula: string;
+  calculated_values?: Record<string, string>;
+}
+
+export interface AIDiagnosis {
+  root_cause_summary: string;
+  discrepancy_category: string;
+  confidence_score: number;
+  recommended_actions: string[];
+  draft_dispute_ticket: string;
+}
+
+export interface Discrepancy {
   id: string;
-  name: string;
-  root_domain: string;
-  verification_status: VerificationStatus;
-  verification_token: string;
-  verified_at?: string;
-  allowed_cidrs: string[];
-  excluded_cidrs: string[];
-  excluded_subdomains: string[];
-  rate_limit_rps: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface StageCheckpoint {
-  stage: StageName;
-  status: StageStatus;
-  started_at: string;
-  completed_at?: string;
-  duration_ms: number;
-  output_count: number;
-  error?: string;
-}
-
-export interface ScanMetrics {
-  total_hosts: number;
-  live_hosts: number;
-  open_ports: number;
-  findings_count: number;
-  duration_seconds: number;
-  requests_per_sec: number;
-}
-
-export interface ScanJob {
-  id: string;
-  scope_id: string;
-  status: ScanStatus;
-  profile: ScanProfile;
-  current_stage: StageName;
-  stage_checkpoints: Record<StageName, StageCheckpoint>;
-  metrics: ScanMetrics;
-  error_message?: string;
-  dry_run: boolean;
-  started_at?: string;
-  completed_at?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface TLSDetails {
-  subject?: string;
-  issuer?: string;
-  valid_from?: string;
-  valid_until?: string;
-  sans?: string[];
-  cipher_suite?: string;
-  version?: string;
-}
-
-export interface Asset {
-  id: string;
-  scan_job_id: string;
-  scope_id: string;
-  fqdn: string;
-  root_domain: string;
-  ip_addresses: string[];
-  asn?: string;
-  asn_org?: string;
-  http_status: number;
-  page_title: string;
-  tech_stack: string[];
-  open_ports: number[];
-  tls_info?: TLSDetails;
-  response_headers?: Record<string, string>;
-  first_seen_at: string;
-  last_seen_at: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface AssetDrift {
-  id: string;
-  scan_job_id: string;
-  previous_scan_job_id?: string;
-  asset_id?: string;
-  fqdn: string;
-  change_type: DriftChangeType;
-  details: Record<string, any>;
-  severity: FindingSeverity;
+  order_id?: string;
+  payout_id?: string;
+  discrepancy_level: DiscrepancyLevel;
+  discrepancy_type: DiscrepancyType;
+  expected_amount: string;
+  actual_amount: string;
+  mismatch_amount: string;
+  severity: DiscrepancySeverity;
+  raw_evidence: RawEvidence;
+  ai_diagnosis?: AIDiagnosis;
+  status: DiscrepancyStatus;
   detected_at: string;
 }
 
-export interface RawEvidence {
-  matched_at?: string;
-  request?: string;
-  response?: string;
-  matcher_name?: string;
-  extracted_results?: string[];
-  curl_command?: string;
+export interface ThreeWayTraceItem {
+  order_id: string;
+  order_gross?: string;
+  order_status?: OrderStatus;
+  pg_txn_id?: string;
+  pg_gross?: string;
+  pg_fee?: string;
+  pg_tax?: string;
+  pg_net?: string;
+  pg_payout_id?: string;
+  pg_payout_status?: PayoutStatus;
+  bank_txn_id?: string;
+  bank_utr?: string;
+  bank_credit?: string;
+  is_reconciled: boolean;
+  discrepancy?: Discrepancy;
 }
 
-export interface Finding {
-  id: string;
-  scan_job_id: string;
-  asset_id: string;
-  fqdn: string;
-  tool: string;
-  rule_id: string;
-  title: string;
-  severity: FindingSeverity;
-  description: string;
-  cve_ids: string[];
-  cvss_score: number;
-  remediation?: string;
-  raw_evidence: RawEvidence;
-  false_positive: boolean;
-  status: FindingStatus;
-  created_at: string;
-  updated_at: string;
+export interface PayoutBatchGroup {
+  payout_id: string;
+  settlements_count: number;
+  total_gross: string;
+  total_fee: string;
+  total_tax: string;
+  total_expected_net: string;
+  bank_credit?: string;
+  bank_utr?: string;
+  status: 'MATCHED' | 'SHORTFALL' | 'SURPLUS' | 'BANK_MISSING';
+  discrepancy?: Discrepancy;
 }
 
-export interface DriftAnalysis {
-  total_new_hosts: number;
-  total_removed_hosts: number;
-  total_opened_ports: number;
-  total_closed_ports: number;
-  high_risk_mutations: string[];
-  summary_description: string;
+export interface ReconciliationSummary {
+  total_orders: number;
+  total_gross_order_volume: string;
+  total_pg_settlements: number;
+  total_pg_fees: string;
+  total_pg_tax: string;
+  expected_net_payout: string;
+  total_bank_credits: string;
+  net_discrepancy_variance: string;
+  level_1_discrepancies_count: number;
+  level_2_discrepancies_count: number;
+  three_way_match_rate: string;
+  reconciled_orders_count: number;
+  unreconciled_orders_count: number;
 }
 
-export interface PrioritizedFinding {
-  rank: number;
-  title: string;
-  severity: FindingSeverity;
-  affected_asset: string;
-  exploit_probability: string;
-  impact_analysis: string;
-  root_cause: string;
-}
-
-export interface RemediationItem {
-  title: string;
-  target_category: string;
-  severity: string;
-  config_snippet: string;
-  explanation: string;
-  validation_steps: string[];
-}
-
-export interface AIReport {
-  id: string;
-  scan_job_id: string;
-  executive_summary: string;
-  overall_risk_score: number;
-  attack_surface_drift_analysis: DriftAnalysis;
-  prioritized_findings: PrioritizedFinding[];
-  remediation_playbook: RemediationItem[];
-  tokens_used: number;
-  model_version: string;
-  is_fallback: boolean;
-  generated_at: string;
-}
-
-export interface TelemetryEvent {
-  type: string;
-  scan_job_id: string;
-  stage?: StageName;
+export interface PipelineTelemetryEvent {
+  type: 'progress' | 'log' | 'kpi_update' | 'discrepancy' | 'completed';
+  stage: 'INGESTION' | 'LEVEL_1_MATCH' | 'LEVEL_2_MATCH' | 'SYNTHESIS' | 'AI_DIAGNOSIS' | 'COMPLETED';
+  progress_percentage: number;
+  message: string;
+  payload?: any;
   timestamp: string;
-  payload: any;
 }
 

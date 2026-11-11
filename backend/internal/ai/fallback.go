@@ -2,278 +2,231 @@ package ai
 
 import (
 	"fmt"
-	"strings"
-	"time"
-
-	"github.com/google/uuid"
 
 	"reconpilot/internal/domain"
 )
 
-// FallbackGenerator produces deterministic, high-fidelity security briefings
-// when the Google GenAI API is not configured, rate-limited, or unavailable.
-type FallbackGenerator struct{}
+// RuleBasedDiagnose provides an institutional deterministic diagnosis engine that activates
+// when Gemini API key is unconfigured, rate-limited, or in offline MOCK_MODE.
+func RuleBasedDiagnose(d *domain.Discrepancy) *domain.AIDiagnosis {
+	if d == nil {
+		return nil
+	}
 
-// NewFallbackGenerator creates a new FallbackGenerator.
-func NewFallbackGenerator() *FallbackGenerator {
-	return &FallbackGenerator{}
-}
-
-// Generate creates a structured AI report from the compacted scan payload.
-func (g *FallbackGenerator) Generate(scanJobID uuid.UUID, payload *CompactPayload) *domain.AIReport {
-	// 1. Calculate Risk Score (0-100)
-	score := 15 // Base baseline score for exposed attack surface
-	score += payload.SeverityStats["critical"] * 30
-	score += payload.SeverityStats["high"] * 15
-	score += payload.SeverityStats["medium"] * 5
-	score += payload.SeverityStats["low"] * 2
-
-	// Check for sensitive open ports
-	for _, a := range payload.Assets {
-		for _, p := range a.OpenPorts {
-			if p == 6379 || p == 3306 || p == 5432 || p == 27017 || p == 9200 {
-				score += 15
-			} else if p == 22 || p == 8200 {
-				score += 5
-			}
+	switch d.DiscrepancyType {
+	case domain.TypeFeeOvercharge:
+		orderID := "N/A"
+		if d.OrderID != nil {
+			orderID = *d.OrderID
 		}
-	}
-
-	if score > 100 {
-		score = 100
-	}
-	if score < 10 && payload.TotalAssets > 0 {
-		score = 10
-	}
-
-	// 2. Synthesize Executive Summary
-	var posture string
-	if score >= 75 {
-		posture = "CRITICAL ELEVATED RISK"
-	} else if score >= 50 {
-		posture = "HIGH ATTENTION REQUIRED"
-	} else if score >= 25 {
-		posture = "MODERATE DEFENSIVE HYGIENE NEEDED"
-	} else {
-		posture = "NOMINAL RESILIENT POSTURE"
-	}
-
-	execSummary := fmt.Sprintf(
-		"External Attack Surface Assessment for %s established an overall posture of %s (Risk Score: %d/100). "+
-			"Reconnaissance across %d perimeter assets identified %d critical, %d high, %d medium, and %d low-severity findings. ",
-		payload.TargetDomain, posture, score, payload.TotalAssets,
-		payload.SeverityStats["critical"], payload.SeverityStats["high"],
-		payload.SeverityStats["medium"], payload.SeverityStats["low"],
-	)
-
-	if payload.DriftSummary != nil && len(payload.DriftSummary.HighRiskMutations) > 0 {
-		execSummary += fmt.Sprintf("Critical historical drift detected: %s. ",
-			strings.Join(payload.DriftSummary.HighRiskMutations, "; "))
-	} else {
-		execSummary += "Immediate defensive priorities focus on eliminating unauthenticated administrative services and tightening perimeter ingress access controls."
-	}
-
-	// 3. Prioritized Findings
-	var prioritized []domain.PrioritizedFinding
-	for i, f := range payload.Findings {
-		affected := strings.Join(f.AffectedHosts, ", ")
-		if affected == "" {
-			affected = payload.TargetDomain
+		payoutID := "N/A"
+		if d.PayoutID != nil {
+			payoutID = *d.PayoutID
 		}
+		mismatchStr := d.MismatchAmount.StringFixed(4)
 
-		exploitProb := "Opportunistic / Medium"
-		impact := "Information disclosure and architectural reconnaissance."
-		rootCause := "Insecure default configuration."
-
-		if f.Severity == domain.SeverityCritical {
-			exploitProb = "Active / Trivial Remote Exploit"
-			impact = "Arbitrary code execution or full service database compromise."
-			rootCause = "Exposed unauthenticated cache or data store directly on public interface."
-		} else if f.Severity == domain.SeverityHigh {
-			exploitProb = "High / Public PoC Accessible"
-			impact = "Sensitive source code, credential leak, or administrative feature takeover."
-			rootCause = "Missing endpoint authentication or exposed VCS metadata directory."
-		} else if f.Severity == domain.SeverityMedium {
-			exploitProb = "Moderate / Multi-step Chain"
-			impact = "Unauthorized cross-origin resource requests or session eavesdropping."
-			rootCause = "Permissive CORS policies or legacy TLS cipher suite enablement."
-		}
-
-		prioritized = append(prioritized, domain.PrioritizedFinding{
-			Rank:               i + 1,
-			Title:              f.Title,
-			Severity:           f.Severity,
-			AffectedAsset:      affected,
-			ExploitProbability: exploitProb,
-			ImpactAnalysis:     impact,
-			RootCause:          rootCause,
-		})
-	}
-
-	// 4. Remediation Playbook
-	var playbook []domain.RemediationItem
-
-	// Generate tailored remediation items matching findings
-	for _, f := range payload.Findings {
-		switch {
-		case strings.Contains(strings.ToLower(f.RuleID), "redis"):
-			playbook = append(playbook, domain.RemediationItem{
-				Title:          "Harden & Isolate Exposed Redis Cache",
-				TargetCategory: "AWS_SG / Linux Firewall",
-				Severity:       string(domain.SeverityCritical),
-				ConfigSnippet: `# /etc/redis/redis.conf
-bind 127.0.0.1 ::1
-protected-mode yes
-requirepass "SECURE_RANDOMLY_GENERATED_64_CHAR_TOKEN"
-
-# Immediate AWS CLI security group revocation:
-aws ec2 revoke-security-group-ingress \
-  --group-id sg-0123456789abcdef0 \
-  --protocol tcp --port 6379 \
-  --cidr 0.0.0.0/0`,
-				Explanation: "Binds Redis strictly to loopback interfaces, enforces strong authentication, and removes 0.0.0.0/0 ingress rules from cloud security groups.",
-				ValidationSteps: []string{
-					"Run `nc -zv <target> 6379` from an external network; verify connection times out or is refused.",
-					"Verify local clients authenticate successfully with `AUTH <password>`.",
-				},
-			})
-
-		case strings.Contains(strings.ToLower(f.RuleID), "git"):
-			playbook = append(playbook, domain.RemediationItem{
-				Title:          "Block Public Access to .git Directories",
-				TargetCategory: "Nginx",
-				Severity:       string(domain.SeverityHigh),
-				ConfigSnippet: `# /etc/nginx/conf.d/security.conf
-location ~ /\.git {
-    deny all;
-    return 404;
-}
-
-# Alternatively in Apache httpd.conf:
-# <Directorymatch "^/.*/\.git/">
-#    Order deny,allow
-#    Deny from all
-# </Directorymatch>`,
-				Explanation: "Prevents attackers from downloading the .git directory structure and recovering proprietary source code, secrets, and internal commit histories.",
-				ValidationSteps: []string{
-					"Run `curl -isk 'https://<target>/.git/config'`; verify HTTP 404 response.",
-					"Verify deployment scripts do not deploy .git metadata to production webroots.",
-				},
-			})
-
-		case strings.Contains(strings.ToLower(f.RuleID), "actuator"):
-			playbook = append(playbook, domain.RemediationItem{
-				Title:          "Restrict Spring Boot Actuator Diagnostic Endpoints",
-				TargetCategory: "Spring Boot / Docker",
-				Severity:       string(domain.SeverityHigh),
-				ConfigSnippet: `# application.properties (or application.yml)
-management.endpoints.web.exposure.include=health,info
-management.endpoints.web.exposure.exclude=env,beans,heapdump,mappings,threaddump
-management.endpoint.health.show-details=never`,
-				Explanation: "Restricts exposed Spring Actuator endpoints to only basic health checks, preventing environment variable leaks and heap dump extractions.",
-				ValidationSteps: []string{
-					"Run `curl -isk 'https://<target>/actuator/env'`; verify HTTP 404 or 401 response.",
-				},
-			})
-
-		case strings.Contains(strings.ToLower(f.RuleID), "cors"):
-			playbook = append(playbook, domain.RemediationItem{
-				Title:          "Enforce Explicit CORS Origin Whitelist",
-				TargetCategory: "Nginx / API Gateway",
-				Severity:       string(domain.SeverityMedium),
-				ConfigSnippet: `# Nginx map for strict origin whitelisting
-map $http_origin $cors_origin {
-    default "";
-    "~^https://(dashboard|portal)\.yourdomain\.com$" "$http_origin";
-}
-
-server {
-    location /api/ {
-        if ($cors_origin != "") {
-            add_header Access-Control-Allow-Origin $cors_origin always;
-            add_header Access-Control-Allow-Credentials "true" always;
-            add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
-            add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
-        }
-    }
-}`,
-				Explanation: "Stops reflecting arbitrary request origins and prevents credentialed cross-origin API exploitation.",
-				ValidationSteps: []string{
-					"Send request with `Origin: https://evil.com`; verify Access-Control-Allow-Origin is absent.",
-					"Send request with legitimate origin; verify header matches whitelist.",
-				},
-			})
-
-		case strings.Contains(strings.ToLower(f.RuleID), "tls"):
-			playbook = append(playbook, domain.RemediationItem{
-				Title:          "Deprecate Weak TLS 1.0/1.1 and CBC Ciphers",
-				TargetCategory: "TLS / Nginx / Cloudflare",
-				Severity:       string(domain.SeverityMedium),
-				ConfigSnippet: `# Nginx Modern TLS Configuration (Mozilla SSL Configuration Generator)
-ssl_protocols TLSv1.2 TLSv1.3;
-ssl_ciphers 'ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384';
-ssl_prefer_server_ciphers off;
-ssl_session_timeout 1d;
-ssl_session_cache shared:SSL:10m;`,
-				Explanation: "Enforces AEAD ciphers only and removes legacy CBC ciphers susceptible to padding oracle attacks.",
-				ValidationSteps: []string{
-					"Run `openssl s_client -connect <target>:443 -tls1_1`; verify handshake failure.",
-					"Run `testssl.sh <target>` to verify Grade A TLS posture.",
-				},
-			})
-
-		case strings.Contains(strings.ToLower(f.RuleID), "hsts"):
-			playbook = append(playbook, domain.RemediationItem{
-				Title:          "Enable HTTP Strict Transport Security (HSTS)",
-				TargetCategory: "Nginx / Cloudflare",
-				Severity:       string(domain.SeverityLow),
-				ConfigSnippet: `# Enforce HSTS across all subdomains with 2-year duration and preload
-add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;`,
-				Explanation: "Instructs browsers to never communicate over cleartext HTTP, preventing SSL stripping downgrade attacks.",
-				ValidationSteps: []string{
-					"Run `curl -sI 'https://<target>' | grep -i Strict-Transport-Security`.",
-					"Confirm header contains `max-age=63072000; includeSubDomains; preload`.",
-				},
-			})
-		}
-	}
-
-	// Always ensure at least one general perimeter hardening item exists if playbook is empty
-	if len(playbook) == 0 {
-		playbook = append(playbook, domain.RemediationItem{
-			Title:          "Perimeter Ingress Firewall Hardening",
-			TargetCategory: "Firewall",
-			Severity:       string(domain.SeverityLow),
-			ConfigSnippet: `# Ensure only HTTPS (443) and HTTP (80) are open externally:
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-sudo ufw enable`,
-			Explanation: "Applies least-privilege perimeter ingress filtering.",
-			ValidationSteps: []string{
-				"Run `nmap -Pn <target>` and verify only 80 and 443 are listening.",
+		return &domain.AIDiagnosis{
+			RootCauseSummary: fmt.Sprintf("Payment Gateway applied an unauthorized fee schedule exceeding the agreed contract rate, resulting in an unapproved deduction of ₹%s on Order %s.",
+				mismatchStr, orderID),
+			DiscrepancyCategory: "Gateway Fee Schedule Drift / Contract Overbilling",
+			ConfidenceScore:     98,
+			RecommendedActions: []string{
+				"File fee reversal claim with Payment Gateway Merchant Operations citing negotiated Merchant Service Agreement.",
+				fmt.Sprintf("Request credit adjustment note of ₹%s against current payout batch %s.", mismatchStr, payoutID),
+				"Review automated pricing webhooks and card interchange tier mapping.",
 			},
-		})
-	}
+			DraftDisputeTicket: fmt.Sprintf("MERCHANT DISPUTE NOTICE: MDR Fee Overcharge\n"+
+				"--------------------------------------------------\n"+
+				"Order Reference: %s\n"+
+				"Payout Batch: %s\n"+
+				"Expected Net: ₹%s | Actual Settled: ₹%s\n"+
+				"Disputed Overcharge Amount: ₹%s\n"+
+				"Evidence: Gateway MDR fee deducted exceeds negotiated contract rate.\n"+
+				"Resolution Requested: Credit note of ₹%s within 48 hours to merchant nodal account.",
+				orderID, payoutID, d.ExpectedAmount.StringFixed(4), d.ActualAmount.StringFixed(4), mismatchStr, mismatchStr),
+		}
 
-	driftAnalysis := domain.DriftAnalysis{}
-	if payload.DriftSummary != nil {
-		driftAnalysis = *payload.DriftSummary
-	}
+	case domain.TypeTaxCalculationError:
+		orderID := "N/A"
+		if d.OrderID != nil {
+			orderID = *d.OrderID
+		}
+		return &domain.AIDiagnosis{
+			RootCauseSummary: fmt.Sprintf("Payment Gateway GST tax invoice calculation deviates from statutory 18.00%% rate on MDR charges for Order %s by ₹%s.",
+				orderID, d.MismatchAmount.StringFixed(4)),
+			DiscrepancyCategory: "Statutory Tax Invoice Inconsistency",
+			ConfidenceScore:     94,
+			RecommendedActions: []string{
+				"Request revised GSTR-1 Annexure debit/credit note from payment gateway.",
+				"Reconcile inward Input Tax Credit (ITC) ledger before monthly GST return filing.",
+			},
+			DraftDisputeTicket: fmt.Sprintf("TAX RECONCILIATION NOTICE: Inconsistent GST Calculation\n"+
+				"Order ID: %s | Variance: ₹%s\n"+
+				"Expected Statutory GST: ₹%s | Billed: ₹%s\n"+
+				"Please re-issue monthly tax invoice with corrected GST breakdown.",
+				orderID, d.MismatchAmount.StringFixed(4), d.ExpectedAmount.StringFixed(4), d.ActualAmount.StringFixed(4)),
+		}
 
-	return &domain.AIReport{
-		ID:                         uuid.New(),
-		ScanJobID:                  scanJobID,
-		ExecutiveSummary:           execSummary,
-		OverallRiskScore:           score,
-		AttackSurfaceDriftAnalysis: driftAnalysis,
-		PrioritizedFindings:        prioritized,
-		RemediationPlaybook:        playbook,
-		TokensUsed:                 0,
-		ModelVersion:               "rule-engine-fallback-v1",
-		IsFallback:                 true,
-		GeneratedAt:                time.Now(),
+	case domain.TypeOrderMissingInPG:
+		orderID := "N/A"
+		if d.OrderID != nil {
+			orderID = *d.OrderID
+		}
+		return &domain.AIDiagnosis{
+			RootCauseSummary: fmt.Sprintf("Merchant order %s was marked CAPTURED internally, but no corresponding settlement or authorization transaction exists in gateway records. Likely dropped webhook or uncaptured customer pre-auth.",
+				orderID),
+			DiscrepancyCategory: "Unsettled Merchant Volume / Dropped Gateway Webhook",
+			ConfidenceScore:     95,
+			RecommendedActions: []string{
+				fmt.Sprintf("Query Payment Gateway Payments API by merchant receipt ID %s.", orderID),
+				"If payment failed at PG, mark internal order FAILED and cancel shipment dispatch.",
+				"If payment was authorized, trigger manual backfill settlement capture.",
+			},
+			DraftDisputeTicket: fmt.Sprintf("TRANSACTION INVESTIGATION REQUEST\n"+
+				"Order ID: %s\n"+
+				"Captured Amount: ₹%s\n"+
+				"Status: Internal ledger shows CAPTURED, Gateway shows NO RECORD.\n"+
+				"Please verify gateway authorization status or initiate settlement ingest.",
+				orderID, d.ExpectedAmount.StringFixed(4)),
+		}
+
+	case domain.TypePGOrphanTxn:
+		orderID := "N/A"
+		if d.OrderID != nil {
+			orderID = *d.OrderID
+		}
+		return &domain.AIDiagnosis{
+			RootCauseSummary: fmt.Sprintf("Payment gateway captured ₹%s for reference %s without a corresponding record in the merchant order database. Likely orphaned checkout session or payment link payment.",
+				d.ActualAmount.StringFixed(4), orderID),
+			DiscrepancyCategory: "Orphan Payment Gateway Capture / Unlinked Receipt",
+			ConfidenceScore:     91,
+			RecommendedActions: []string{
+				"Cross-reference customer email and phone in gateway transaction metadata against customer directory.",
+				"Create manual back-office order record or issue customer refund if fulfillment cannot be completed.",
+			},
+			DraftDisputeTicket: fmt.Sprintf("INTERNAL AUDIT NOTICE: Unlinked Gateway Capture\n"+
+				"Gateway Reference: %s\n"+
+				"Amount Captured: ₹%s\n"+
+				"Action: Identify customer order context or reverse funds.",
+				orderID, d.ActualAmount.StringFixed(4)),
+		}
+
+	case domain.TypeCaptureStatusMismatch:
+		orderID := "N/A"
+		if d.OrderID != nil {
+			orderID = *d.OrderID
+		}
+		return &domain.AIDiagnosis{
+			RootCauseSummary: fmt.Sprintf("Internal order %s was marked REFUNDED or FAILED, but payment gateway retained and settled funds of ₹%s. Refund API call may have failed or timed out.",
+				orderID, d.ActualAmount.StringFixed(4)),
+			DiscrepancyCategory: "Unexecuted Refund / Double-Retention Hazard",
+			ConfidenceScore:     96,
+			RecommendedActions: []string{
+				fmt.Sprintf("Initiate immediate refund via Gateway API for Order %s.", orderID),
+				"Verify customer bank account has not initiated a chargeback dispute.",
+			},
+			DraftDisputeTicket: fmt.Sprintf("ACTION REQUIRED: Execute Pending Customer Refund\n"+
+				"Order ID: %s | Amount: ₹%s\n"+
+				"Internal Status: REFUNDED | Gateway Status: SETTLED\n"+
+				"Execute immediate outward refund to prevent customer chargeback escalation.",
+				orderID, d.ActualAmount.StringFixed(4)),
+		}
+
+	case domain.TypeGrossAmountMismatch:
+		orderID := "N/A"
+		if d.OrderID != nil {
+			orderID = *d.OrderID
+		}
+		return &domain.AIDiagnosis{
+			RootCauseSummary: fmt.Sprintf("Gross order volume of ₹%s differs from gateway settled gross of ₹%s (variance: ₹%s). Likely promotional discount misallocation or partial capture.",
+				d.ExpectedAmount.StringFixed(4), d.ActualAmount.StringFixed(4), d.MismatchAmount.StringFixed(4)),
+			DiscrepancyCategory: "Promotional Code Accounting Mismatch / Partial Capture",
+			ConfidenceScore:     90,
+			RecommendedActions: []string{
+				"Verify whether coupon code or merchant discount voucher was applied at checkout.",
+				"Post promotional expense journal entry to balance difference against marketing budget.",
+			},
+			DraftDisputeTicket: fmt.Sprintf("ORDER RECONCILIATION NOTICE: Gross Amount Variance\n"+
+				"Order ID: %s\n"+
+				"Order Gross: ₹%s | Gateway Gross: ₹%s | Variance: ₹%s\n"+
+				"Reconcile promotional subsidy or partial capture ledger.",
+				orderID, d.ExpectedAmount.StringFixed(4), d.ActualAmount.StringFixed(4), d.MismatchAmount.StringFixed(4)),
+		}
+
+	case domain.TypeBankMissing:
+		payoutID := "N/A"
+		if d.PayoutID != nil {
+			payoutID = *d.PayoutID
+		}
+		return &domain.AIDiagnosis{
+			RootCauseSummary: fmt.Sprintf("Payment Gateway reports payout batch %s of ₹%s was settled, but bank statements show NO credited remittance. Potential nodal clearing failure or incorrect beneficiary IFSC/account.",
+				payoutID, d.ExpectedAmount.StringFixed(4)),
+			DiscrepancyCategory: "Uncredited Bank Remittance / Nodal Clearing Failure",
+			ConfidenceScore:     97,
+			RecommendedActions: []string{
+				fmt.Sprintf("Request NEFT/RTGS Bank Acknowledgement Slip from Gateway Treasury Desk for Payout %s.", payoutID),
+				"Lodge outward remittance investigation with corporate banking partner.",
+			},
+			DraftDisputeTicket: fmt.Sprintf("CRITICAL REMITTANCE INQUIRY: Missing Payout Credit\n"+
+				"Payout Batch ID: %s\n"+
+				"Settled Net Expected: ₹%s\n"+
+				"Bank Statement Status: ZERO credit found.\n"+
+				"Please furnish Bank Reference Number (UTR) and clearing confirmation slip immediately.",
+				payoutID, d.ExpectedAmount.StringFixed(4)),
+		}
+
+	case domain.TypePayoutShortfall:
+		payoutID := "N/A"
+		if d.PayoutID != nil {
+			payoutID = *d.PayoutID
+		}
+		return &domain.AIDiagnosis{
+			RootCauseSummary: fmt.Sprintf("Payout batch %s received ₹%s in bank account against expected net of ₹%s (shortfall of ₹%s). Unnotified rolling security reserve retention or chargeback recovery deduction.",
+				payoutID, d.ActualAmount.StringFixed(4), d.ExpectedAmount.StringFixed(4), d.MismatchAmount.StringFixed(4)),
+			DiscrepancyCategory: "Gateway Settlement Clawback / Rolling Reserve Deduction",
+			ConfidenceScore:     93,
+			RecommendedActions: []string{
+				fmt.Sprintf("Download line-item settlement deduction annexure for Payout %s.", payoutID),
+				"Verify whether rolling reserve threshold was revised by gateway risk committee.",
+			},
+			DraftDisputeTicket: fmt.Sprintf("SETTLEMENT SHORTFALL DISPUTE\n"+
+				"Payout Batch: %s\n"+
+				"Expected Net: ₹%s | Received: ₹%s | Shortfall: ₹%s\n"+
+				"Please furnish detailed deduction ledger explaining the ₹%s variance.",
+				payoutID, d.ExpectedAmount.StringFixed(4), d.ActualAmount.StringFixed(4), d.MismatchAmount.StringFixed(4), d.MismatchAmount.StringFixed(4)),
+		}
+
+	case domain.TypePayoutSurplus:
+		payoutID := "N/A"
+		if d.PayoutID != nil {
+			payoutID = *d.PayoutID
+		}
+		return &domain.AIDiagnosis{
+			RootCauseSummary: fmt.Sprintf("Bank credited ₹%s for payout batch %s exceeding expected settlement of ₹%s by ₹%s. Likely delayed reversal credit or prior period settlement adjustment.",
+				d.ActualAmount.StringFixed(4), payoutID, d.ExpectedAmount.StringFixed(4), d.MismatchAmount.StringFixed(4)),
+			DiscrepancyCategory: "Unidentified Surplus Remittance / Retroactive Credit",
+			ConfidenceScore:     88,
+			RecommendedActions: []string{
+				"Credit suspense clearing account pending gateway monthly reconciliation.",
+				"Verify whether prior chargeback dispute was won and re-credited.",
+			},
+			DraftDisputeTicket: fmt.Sprintf("REMITTANCE SURPLUS ADVICE\n"+
+				"Payout Batch: %s | Surplus Credit: ₹%s\n"+
+				"Please confirm purpose of excess credit for financial auditing.",
+				payoutID, d.MismatchAmount.StringFixed(4)),
+		}
+
+	default:
+		return &domain.AIDiagnosis{
+			RootCauseSummary:    fmt.Sprintf("Financial discrepancy detected with variance of ₹%s. Manual forensic inspection advised.", d.MismatchAmount.StringFixed(4)),
+			DiscrepancyCategory: "General Ledger Variance",
+			ConfidenceScore:     85,
+			RecommendedActions: []string{
+				"Inspect raw order, settlement, and bank transaction payloads.",
+				"Review manual journal entries.",
+			},
+			DraftDisputeTicket: fmt.Sprintf("Audit Notice: Discrepancy %s requires manual ledger reconciliation.", d.ID),
+		}
 	}
 }
 

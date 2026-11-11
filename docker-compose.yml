@@ -1,85 +1,57 @@
 services:
-  mongodb:
-    image: mongo:7.0
-    container_name: reconpilot-mongodb
+  postgres:
+    image: postgres:16-alpine
+    container_name: reconpilot-postgres
     restart: unless-stopped
+    environment:
+      POSTGRES_USER: reconpilot
+      POSTGRES_PASSWORD: reconpilot
+      POSTGRES_DB: reconpilot
     ports:
-      - "27017:27017"
+      - "5432:5432"
     volumes:
-      - mongodata:/data/db
+      - ./backend/migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD-SHELL", "pg_isready -U reconpilot -d reconpilot"]
       interval: 5s
       timeout: 5s
       retries: 5
-    networks:
-      - reconpilot-net
-
-  redis:
-    image: redis:7-alpine
-    container_name: reconpilot-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redisdata:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - reconpilot-net
 
   backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
-      target: backend
     container_name: reconpilot-backend
     restart: unless-stopped
-    environment:
-      ENVIRONMENT: production
-      SERVER_HOST: "0.0.0.0"
-      SERVER_PORT: "8080"
-      SERVER_CORS_ALLOWED_ORIGINS: "http://localhost,http://localhost:80,http://localhost:5173,http://frontend"
-      MONGODB_URI: "mongodb://mongodb:27017"
-      MONGODB_DATABASE: "reconpilot"
-      REDIS_URL: "redis://redis:6379/0"
-      MOCK_MODE: "false"
-      # Insert your Google Gemini API Key here for live GenAI threat synthesis
-      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
-      AUTH_API_KEY: "${AUTH_API_KEY:-reconpilot-secret-dev-key}"
     ports:
       - "8080:8080"
+    environment:
+      PORT: 8080
+      DATABASE_URL: postgres://reconpilot:reconpilot@postgres:5432/reconpilot?sslmode=disable
+      MOCK_MODE: "false"
+      AUTH_API_KEY: reconpilot-secret-dev-key
+      PIPELINE_MAX_CONCURRENT_BATCHES: 10
+      PIPELINE_STAGE_TIMEOUT: 5m
+      PIPELINE_RING_BUFFER_SIZE_KB: 2048
+      SECURITY_ENFORCE_STRICT_SCHEMA: "true"
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: gemini-2.5-flash
     depends_on:
-      mongodb:
+      postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - reconpilot-net
 
   frontend:
     build:
       context: .
-      dockerfile: Dockerfile
-      target: frontend
+      dockerfile: ./frontend/Dockerfile
     container_name: reconpilot-frontend
     restart: unless-stopped
     ports:
-      - "5173:80"
+      - "3000:80"
     depends_on:
       - backend
-    networks:
-      - reconpilot-net
-
-networks:
-  reconpilot-net:
-    driver: bridge
 
 volumes:
-  mongodata:
-    driver: local
-  redisdata:
+  pgdata:
     driver: local

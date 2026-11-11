@@ -8,58 +8,67 @@ import (
 	"reconpilot/internal/domain"
 )
 
-// ScopeRepository defines data access for target scopes.
-type ScopeRepository interface {
-	Create(ctx context.Context, scope *domain.Scope) error
-	GetByID(ctx context.Context, id uuid.UUID) (*domain.Scope, error)
-	GetByRootDomain(ctx context.Context, rootDomain string) (*domain.Scope, error)
-	Update(ctx context.Context, scope *domain.Scope) error
-	UpdateVerificationStatus(ctx context.Context, id uuid.UUID, status domain.VerificationStatus) error
-	List(ctx context.Context) ([]*domain.Scope, error)
-	Delete(ctx context.Context, id uuid.UUID) error
+// DiscrepancyFilter specifies optional criteria for querying discrepancies.
+type DiscrepancyFilter struct {
+	Level    *domain.DiscrepancyLevel    `json:"level,omitempty"`
+	Type     *domain.DiscrepancyType     `json:"type,omitempty"`
+	Severity *domain.DiscrepancySeverity `json:"severity,omitempty"`
+	Status   *domain.DiscrepancyStatus   `json:"status,omitempty"`
+	OrderID  *string                     `json:"order_id,omitempty"`
+	PayoutID *string                     `json:"payout_id,omitempty"`
+	Limit    int                         `json:"limit,omitempty"`
+	Offset   int                         `json:"offset,omitempty"`
 }
 
-// ScanJobRepository defines data access for scan pipelines.
-type ScanJobRepository interface {
-	Create(ctx context.Context, job *domain.ScanJob) error
-	GetByID(ctx context.Context, id uuid.UUID) (*domain.ScanJob, error)
-	GetLatestCompletedByScope(ctx context.Context, scopeID uuid.UUID, excludeJobID uuid.UUID) (*domain.ScanJob, error)
-	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.ScanStatus, errMessage *string) error
-	UpdateCurrentStage(ctx context.Context, id uuid.UUID, stage domain.StageName) error
-	SaveCheckpoint(ctx context.Context, id uuid.UUID, checkpoint domain.StageCheckpoint) error
-	UpdateMetrics(ctx context.Context, id uuid.UUID, metrics domain.ScanMetrics) error
-	ListByScope(ctx context.Context, scopeID uuid.UUID) ([]*domain.ScanJob, error)
+// OrderRepository handles persistence of internal merchant orders.
+type OrderRepository interface {
+	InsertBatch(ctx context.Context, orders []domain.Order) error
+	FindAll(ctx context.Context) ([]domain.Order, error)
+	FindByID(ctx context.Context, orderID string) (*domain.Order, error)
+	Count(ctx context.Context) (int64, error)
+	Clear(ctx context.Context) error
 }
 
-// AssetRepository defines batch and query operations for discovered assets.
-type AssetRepository interface {
-	BatchInsert(ctx context.Context, assets []*domain.Asset) error
-	ListByScanJob(ctx context.Context, scanJobID uuid.UUID) ([]*domain.Asset, error)
-	ListByScope(ctx context.Context, scopeID uuid.UUID) ([]*domain.Asset, error)
+// PGRepository handles persistence of payment gateway settlements.
+type PGRepository interface {
+	InsertBatch(ctx context.Context, settlements []domain.PGSettlement) error
+	FindAll(ctx context.Context) ([]domain.PGSettlement, error)
+	FindByOrderID(ctx context.Context, orderID string) (*domain.PGSettlement, error)
+	FindByPayoutID(ctx context.Context, payoutID string) ([]domain.PGSettlement, error)
+	FindDistinctPayoutIDs(ctx context.Context) ([]string, error)
+	Count(ctx context.Context) (int64, error)
+	Clear(ctx context.Context) error
 }
 
-// AssetDriftRepository defines data access for drift records.
-type AssetDriftRepository interface {
-	BatchInsert(ctx context.Context, drifts []*domain.AssetDrift) error
-	ListByScanJob(ctx context.Context, scanJobID uuid.UUID) ([]*domain.AssetDrift, error)
+// BankRepository handles persistence of bank statement credit entries.
+type BankRepository interface {
+	InsertBatch(ctx context.Context, statements []domain.BankStatement) error
+	FindAll(ctx context.Context) ([]domain.BankStatement, error)
+	FindByUTR(ctx context.Context, utr string) (*domain.BankStatement, error)
+	Count(ctx context.Context) (int64, error)
+	Clear(ctx context.Context) error
 }
 
-// FindingRepository defines data access for vulnerability findings.
-type FindingRepository interface {
-	BatchInsert(ctx context.Context, findings []*domain.Finding) error
-	ListByScanJob(ctx context.Context, scanJobID uuid.UUID) ([]*domain.Finding, error)
-	ListByAsset(ctx context.Context, assetID uuid.UUID) ([]*domain.Finding, error)
+// DiscrepancyRepository handles persistence of detected discrepancies and AI audit dossiers.
+type DiscrepancyRepository interface {
+	InsertBatch(ctx context.Context, discrepancies []domain.Discrepancy) error
+	FindAll(ctx context.Context, filter DiscrepancyFilter) ([]domain.Discrepancy, error)
+	FindByID(ctx context.Context, id uuid.UUID) (*domain.Discrepancy, error)
+	FindByOrderID(ctx context.Context, orderID string) (*domain.Discrepancy, error)
+	FindByPayoutID(ctx context.Context, payoutID string) (*domain.Discrepancy, error)
+	UpdateDiagnosis(ctx context.Context, id uuid.UUID, diagnosis domain.AIDiagnosis) error
+	UpdateStatus(ctx context.Context, id uuid.UUID, status domain.DiscrepancyStatus) error
+	Count(ctx context.Context) (int64, error)
+	Clear(ctx context.Context) error
 }
 
-// AIReportRepository defines data access for AI synthesized executive briefings.
-type AIReportRepository interface {
-	Create(ctx context.Context, report *domain.AIReport) error
-	GetByScanJob(ctx context.Context, scanJobID uuid.UUID) (*domain.AIReport, error)
-}
-
-// TelemetryBroadcaster defines real-time event dissemination.
-type TelemetryBroadcaster interface {
-	Broadcast(ctx context.Context, event domain.TelemetryEvent) error
-	Subscribe(ctx context.Context, scanJobID uuid.UUID) (<-chan domain.TelemetryEvent, func())
+// ReconciliationRepository aggregates all storage entities into a unified interface.
+type ReconciliationRepository interface {
+	Orders() OrderRepository
+	PG() PGRepository
+	Bank() BankRepository
+	Discrepancies() DiscrepancyRepository
+	ResetAll(ctx context.Context) error
+	Close() error
 }
 

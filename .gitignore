@@ -6,14 +6,17 @@
 *.dylib
 reconpilot-api
 reconpilot-cli
+bin/
 
-# Test & Local Reports
+# Sample CLI generated outputs
+samples/
+
+# Test outputs
 *.test
-reconpilot-*.md
-reconpilot-*.json
-test-report.md
+*.out
+*.prof
 
-# Frontend Dependencies and Build Outputs
+# Frontend dependencies and build outputs
 frontend/node_modules/
 node_modules/
 frontend/dist/
@@ -21,12 +24,12 @@ dist/
 .vite/
 *.local
 
-# Environment variables & Secrets
+# Environment variables & secrets
 .env
 .env.*
 !.env.example
 
-# IDE & Editor configurations
+# IDE & OS files
 .vscode/
 .idea/
 *.swp
@@ -35,7 +38,6 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Database / Volumes
+# Database storage
 pgdata/
-redisdata/
 

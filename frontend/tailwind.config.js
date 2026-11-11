@@ -8,53 +8,50 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Swiss Industrial Obsidian & Carbon Surface Palette
-        carbon: {
-          canvas: '#08090C',       // Primary background
-          panel: '#0D0F14',        // Sidebars & elevated split panes
-          card: '#10121A',         // Secondary surfaces
-          hover: '#141824',        // Interactive hover states
-          active: '#1A2030',       // Active/selected rows
-          border: '#1E222D',       // Hairline structural dividers
-          borderSubtle: '#161922', // Subtle sub-dividers
+        ledger: {
+          950: '#06070A',
+          900: '#090A0F', // Abyssal canvas
+          850: '#0E1017', // Surface / Card
+          800: '#141824', // Elevated panel / hover
+          750: '#191E2D', // Selected state
+          700: '#1E2433', // Border / Divider
+          600: '#2A3245', // Active border
+          400: '#8E9BB0', // Secondary text
+          300: '#BAC4D6', // Primary muted
+          100: '#F3F6FB', // High contrast text
         },
-        // Muted High-Contrast Signal Palette
-        signal: {
-          critical: '#F43F5E',
-          criticalBg: '#2A0C14',
-          high: '#F97316',
-          highBg: '#2E1405',
-          medium: '#EAB308',
-          mediumBg: '#2A2004',
-          nominal: '#10B981',
-          nominalBg: '#06281E',
-          accent: '#38BDF8',
-          accentBg: '#082F49',
-        },
-        typography: {
-          primary: '#E2E8F0',
-          secondary: '#94A3B8',
-          muted: '#64748B',
-          dim: '#475569',
-        },
+        recon: {
+          emerald: '#10B981', // Reconciled / Match
+          emeraldGlow: 'rgba(16, 185, 129, 0.15)',
+          crimson: '#F43F5E', // Discrepancy / Overcharge
+          crimsonGlow: 'rgba(244, 63, 94, 0.15)',
+          amber: '#F59E0B',   // In dispute / Warning
+          amberGlow: 'rgba(245, 158, 11, 0.15)',
+          cyan: '#06B6D4',    // Bank statement
+          indigo: '#6366F1',  // AI Synthesis / Gateway
+        }
       },
       fontFamily: {
-        sans: ['Inter', 'Geist Sans', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Geist Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        mono: ['JetBrains Mono', 'SF Mono', 'Menlo', 'Consolas', 'monospace'],
       },
-      borderRadius: {
-        none: '0px',
-        micro: '2px',
-        sm: '4px',
-        DEFAULT: '4px',
-        md: '4px',
+      animation: {
+        'pulse-subtle': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'fade-in': 'fadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+        'slide-in': 'slideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
       },
-      letterSpacing: {
-        tightest: '-0.025em',
-        tight: '-0.015em',
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        slideIn: {
+          '0%': { transform: 'translateX(100%)' },
+          '100%': { transform: 'translateX(0)' },
+        },
       },
     },
   },
   plugins: [],
-};
+}
 

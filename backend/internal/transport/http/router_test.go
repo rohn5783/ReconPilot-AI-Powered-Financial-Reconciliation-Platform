@@ -1,76 +1,126 @@
 package http
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"reconpilot/internal/ai"
 	"reconpilot/internal/config"
-	"reconpilot/internal/orchestrator"
+	"reconpilot/internal/matching"
 	"reconpilot/internal/repository"
+	"reconpilot/internal/service"
 	"reconpilot/internal/transport/stream"
-	"reconpilot/pkg/runner"
 )
 
-func TestRouterHealthAndCORS(t *testing.T) {
+func setupTestRouter(t *testing.T) (*http.Handler, *config.Config) {
+	ctx := context.Background()
 	cfg := &config.Config{
-		Environment: "test",
-		Server: config.ServerConfig{
-			CORSAllowedOrigins: []string{"http://localhost:5173"},
-		},
 		Auth: config.AuthConfig{
-			JWTSecret: "test-jwt-secret-12345678",
+			APIKey: "test-secret-key",
+		},
+		Server: config.ServerConfig{
+			Port: 8080,
 		},
 	}
 
-	hub := repository.NewRedisTelemetryHub(context.Background(), &cfg.Redis)
-	safeRunner := runner.NewSafeRunner(10, 64)
-	orch := orchestrator.NewPipelineOrchestrator(cfg, nil, hub, safeRunner)
-	analyst := ai.NewGeminiAnalyst(&cfg.AI)
-	apiHandler := NewAPIHandler(nil, orch, analyst)
-	streamHandler := stream.NewStreamHandler(hub)
+	repo := repository.NewMockRepository(true)
+	engine := matching.NewEngine(matching.DefaultEngineConfig())
+	aiClient, err := ai.NewClient(ctx, "", "gemini-2.5-flash")
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	hub := stream.NewHub()
+	reconSvc := service.NewReconciliationService(repo, engine, aiClient, hub)
+	exportSvc := service.NewExportService()
 
-	router := SetupRouter(cfg, apiHandler, streamHandler)
+	router := NewRouter(cfg, reconSvc, exportSvc)
+	var handler http.Handler = router
+	return &handler, cfg
+}
 
-	// 1. Health check test
-	req, _ := http.NewRequest("GET", "/healthz", nil)
+func TestHealthCheck(t *testing.T) {
+	handler, _ := setupTestRouter(t)
+
+	req, _ := http.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
+	(*handler).ServeHTTP(w, req)
 
 	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK for /healthz, got %d", w.Code)
+		t.Errorf("Expected 200 OK, got %d", w.Code)
 	}
-
-	// 2. CORS preflight test
-	corsReq, _ := http.NewRequest("OPTIONS", "/api/v1/scopes", nil)
-	corsReq.Header.Set("Origin", "http://localhost:5173")
-	corsW := httptest.NewRecorder()
-	router.ServeHTTP(corsW, corsReq)
-
-	if corsW.Code != http.StatusNoContent {
-		t.Fatalf("expected 204 No Content for OPTIONS, got %d", corsW.Code)
-	}
-	if corsW.Header().Get("Access-Control-Allow-Origin") != "http://localhost:5173" {
-		t.Errorf("expected CORS origin header http://localhost:5173, got %s", corsW.Header().Get("Access-Control-Allow-Origin"))
-	}
-
-	// 3. Validation failure test on bad FQDN
-	badScope := map[string]interface{}{
-		"name":        "Invalid Test",
-		"root_domain": "invalid-hostname-no-tld",
-	}
-	body, _ := json.Marshal(badScope)
-	valReq, _ := http.NewRequest("POST", "/api/v1/scopes", bytes.NewReader(body))
-	valReq.Header.Set("Content-Type", "application/json")
-	valW := httptest.NewRecorder()
-	router.ServeHTTP(valW, valReq)
-
-	if valW.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 Bad Request for invalid domain, got %d", valW.Code)
+	if !strings.Contains(w.Body.String(), "UP") {
+		t.Errorf("Expected body to contain 'UP', got %s", w.Body.String())
 	}
 }
 
+func TestAuthMiddlewareProtection(t *testing.T) {
+	handler, cfg := setupTestRouter(t)
+
+	// Unauthorized without key
+	req, _ := http.NewRequest(http.MethodGet, "/api/v1/summary", nil)
+	w := httptest.NewRecorder()
+	(*handler).ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401 Unauthorized without API key, got %d", w.Code)
+	}
+
+	// Authorized with header
+	reqAuth, _ := http.NewRequest(http.MethodGet, "/api/v1/summary", nil)
+	reqAuth.Header.Set("X-API-Key", cfg.Auth.APIKey)
+	wAuth := httptest.NewRecorder()
+	(*handler).ServeHTTP(wAuth, reqAuth)
+
+	if wAuth.Code != http.StatusOK {
+		t.Errorf("Expected 200 OK with valid API key, got %d (body: %s)", wAuth.Code, wAuth.Body.String())
+	}
+
+	// Authorized with query parameter (?api_key=)
+	reqQuery, _ := http.NewRequest(http.MethodGet, "/api/v1/summary?api_key="+cfg.Auth.APIKey, nil)
+	wQuery := httptest.NewRecorder()
+	(*handler).ServeHTTP(wQuery, reqQuery)
+
+	if wQuery.Code != http.StatusOK {
+		t.Errorf("Expected 200 OK with query api_key, got %d", wQuery.Code)
+	}
+}
+
+func TestGetTracesAndDiscrepanciesAPI(t *testing.T) {
+	handler, cfg := setupTestRouter(t)
+
+	// 1. Get Traces
+	reqTraces, _ := http.NewRequest(http.MethodGet, "/api/v1/traces", nil)
+	reqTraces.Header.Set("X-API-Key", cfg.Auth.APIKey)
+	wTraces := httptest.NewRecorder()
+	(*handler).ServeHTTP(wTraces, reqTraces)
+
+	if wTraces.Code != http.StatusOK {
+		t.Errorf("Expected 200 for /api/v1/traces, got %d", wTraces.Code)
+	}
+
+	// 2. Get Discrepancies
+	reqDiscs, _ := http.NewRequest(http.MethodGet, "/api/v1/discrepancies", nil)
+	reqDiscs.Header.Set("X-API-Key", cfg.Auth.APIKey)
+	wDiscs := httptest.NewRecorder()
+	(*handler).ServeHTTP(wDiscs, reqDiscs)
+
+	if wDiscs.Code != http.StatusOK {
+		t.Errorf("Expected 200 for /api/v1/discrepancies, got %d", wDiscs.Code)
+	}
+
+	// 3. Export CSV
+	reqExport, _ := http.NewRequest(http.MethodGet, "/api/v1/export?format=csv", nil)
+	reqExport.Header.Set("X-API-Key", cfg.Auth.APIKey)
+	wExport := httptest.NewRecorder()
+	(*handler).ServeHTTP(wExport, reqExport)
+
+	if wExport.Code != http.StatusOK {
+		t.Errorf("Expected 200 for /api/v1/export, got %d", wExport.Code)
+	}
+	if !strings.Contains(wExport.Header().Get("Content-Type"), "text/csv") {
+		t.Errorf("Expected text/csv content type, got %s", wExport.Header().Get("Content-Type"))
+	}
+}

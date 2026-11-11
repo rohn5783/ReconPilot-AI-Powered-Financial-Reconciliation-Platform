@@ -1,86 +1,90 @@
 import React from 'react';
-import { useWorkspaceStore, WorkspaceTab } from '../../store/useWorkspaceStore';
 import {
+  Table2,
   Layers,
-  Network,
-  Bot,
-  Shield,
-  Activity,
+  AlertTriangle,
+  UploadCloud,
   Cpu,
-  Database,
-  Radio,
+  ShieldCheck,
+  Scale,
 } from 'lucide-react';
+import { useReconStore, WorkstationView } from '../../store/useReconStore';
 
-interface SidebarProps {
-  assetCount?: number;
-  findingCount?: number;
-  riskScore?: number;
-}
+export const Sidebar: React.FC = () => {
+  const {
+    activeView,
+    setActiveView,
+    summary,
+    discrepancies,
+    payoutBatches,
+  } = useReconStore();
 
-export const Sidebar: React.FC<SidebarProps> = ({
-  assetCount = 15,
-  findingCount = 7,
-  riskScore = 100,
-}) => {
-  const { activeTab, setActiveTab } = useWorkspaceStore();
-
-  const navItems: { id: WorkspaceTab; label: string; icon: React.ComponentType<{ className?: string }>; badge?: string; badgeColor?: string }[] = [
+  const navItems: Array<{
+    id: WorkstationView;
+    label: string;
+    icon: React.ReactNode;
+    badge?: number | string;
+    badgeColor?: string;
+  }> = [
     {
-      id: 'inventory',
-      label: 'Asset Inventory',
-      icon: Layers,
-      badge: `${assetCount}`,
-      badgeColor: 'text-typography-secondary bg-carbon-card border-carbon-border',
+      id: 'explorer',
+      label: '3-Way Trace Ledger',
+      icon: <Table2 className="w-4 h-4" />,
+      badge: summary?.total_orders,
+      badgeColor: 'bg-ledger-800 text-ledger-300',
     },
     {
-      id: 'topology',
-      label: 'Attack Topology',
-      icon: Network,
+      id: 'batches',
+      label: 'Payout Batches (L2)',
+      icon: <Layers className="w-4 h-4" />,
+      badge: payoutBatches.length,
+      badgeColor: 'bg-ledger-800 text-recon-cyan',
     },
     {
-      id: 'analyst',
-      label: 'AI Analyst & Fixes',
-      icon: Bot,
-      badge: `${riskScore}/100`,
-      badgeColor: riskScore >= 75 ? 'text-signal-critical bg-signal-criticalBg border-signal-critical/40' : 'text-signal-nominal bg-signal-nominalBg border-signal-nominal/40',
+      id: 'discrepancies',
+      label: 'Discrepancy Audits',
+      icon: <AlertTriangle className="w-4 h-4" />,
+      badge: discrepancies.length,
+      badgeColor: 'bg-recon-crimson/20 text-recon-crimson border border-recon-crimson/30',
     },
     {
-      id: 'scopes',
-      label: 'Scope Registry',
-      icon: Shield,
+      id: 'upload',
+      label: 'Streaming Ingestion',
+      icon: <UploadCloud className="w-4 h-4" />,
     },
   ];
 
   return (
-    <aside className="w-56 bg-carbon-panel hairline-r flex flex-col justify-between shrink-0 select-none z-20">
-      {/* Top Navigation Links */}
-      <div className="p-2 space-y-1">
-        <div className="px-2 py-1.5 text-[10px] font-mono uppercase tracking-widest text-typography-muted font-semibold">
-          Workstation Panes
+    <aside className="w-60 border-r border-ledger-700 bg-ledger-850 flex flex-col justify-between select-none">
+      {/* Navigation Links */}
+      <div className="p-3 space-y-1">
+        <div className="px-3 py-2 text-[10px] font-mono uppercase tracking-wider text-ledger-400">
+          Reconciliation Modules
         </div>
 
         {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = activeTab === item.id;
-
+          const isActive = activeView === item.id;
           return (
             <button
               key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center justify-between px-2.5 py-2 rounded-micro text-xs font-medium transition-all ${
+              onClick={() => setActiveView(item.id)}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-md text-xs font-medium transition ${
                 isActive
-                  ? 'bg-carbon-active border border-signal-accent/30 text-signal-accent shadow-sm'
-                  : 'text-typography-secondary hover:text-typography-primary hover:bg-carbon-hover border border-transparent'
+                  ? 'bg-ledger-750 text-white border border-ledger-600 shadow-sm'
+                  : 'text-ledger-300 hover:text-white hover:bg-ledger-800'
               }`}
             >
               <div className="flex items-center gap-2.5">
-                <Icon className={`w-4 h-4 ${isActive ? 'text-signal-accent' : 'text-typography-muted'}`} />
-                <span className="tracking-tight">{item.label}</span>
+                <span className={isActive ? 'text-recon-emerald' : 'text-ledger-400'}>
+                  {item.icon}
+                </span>
+                <span>{item.label}</span>
               </div>
-
-              {item.badge && (
+              {item.badge !== undefined && (
                 <span
-                  className={`px-1.5 py-0.2 rounded-micro border text-[10px] font-mono font-medium ${item.badgeColor}`}
+                  className={`px-1.5 py-0.2 rounded font-mono text-[10px] ${
+                    item.badgeColor || 'bg-ledger-800 text-ledger-400'
+                  }`}
                 >
                   {item.badge}
                 </span>
@@ -90,29 +94,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </div>
 
-      {/* Bottom Telemetry Health & Daemon Monitor */}
-      <div className="p-3 hairline-t bg-carbon-canvas/50 text-[11px] font-mono space-y-2">
-        <div className="flex items-center justify-between text-typography-muted">
-          <div className="flex items-center gap-1.5">
-            <Radio className="w-3 h-3 text-signal-nominal animate-pulse" />
-            <span className="text-[10px] uppercase tracking-wider">Engine Daemon</span>
-          </div>
-          <span className="text-signal-nominal text-[10px]">ONLINE</span>
+      {/* Contract Invariants & Engine Parameters Widget */}
+      <div className="p-3 border-t border-ledger-700 bg-ledger-900/50 space-y-2.5 text-[11px] font-mono">
+        <div className="flex items-center gap-2 text-ledger-400">
+          <Scale className="w-3.5 h-3.5 text-ledger-400" />
+          <span className="uppercase tracking-wider text-[10px]">Contract Invariants</span>
         </div>
 
-        <div className="space-y-1 text-typography-dim text-[10px]">
-          <div className="flex justify-between">
-            <span>Worker Pool:</span>
-            <span className="text-typography-secondary">4 / 4 Slots</span>
+        <div className="bg-ledger-850 rounded p-2 border border-ledger-700 space-y-1.5 text-ledger-300 text-[10px]">
+          <div className="flex justify-between items-center">
+            <span className="text-ledger-400">Agreed MDR:</span>
+            <span className="text-white font-semibold">2.00%</span>
           </div>
-          <div className="flex justify-between">
-            <span>Ring Buffer:</span>
-            <span className="text-typography-secondary">1024 KB OK</span>
+          <div className="flex justify-between items-center">
+            <span className="text-ledger-400">Statutory GST:</span>
+            <span className="text-white font-semibold">18.00%</span>
           </div>
-          <div className="flex justify-between">
-            <span>SSRF Guard:</span>
-            <span className="text-signal-nominal">RFC1918 Enforced</span>
+          <div className="flex justify-between items-center">
+            <span className="text-ledger-400">Fee Tolerance:</span>
+            <span className="text-recon-emerald font-semibold">±₹0.0100</span>
           </div>
+          <div className="flex justify-between items-center">
+            <span className="text-ledger-400">Rounding:</span>
+            <span className="text-white">Half-Even</span>
+          </div>
+        </div>
+
+        {/* AI Engine Status */}
+        <div className="flex items-center justify-between px-2 py-1.5 rounded bg-ledger-800 border border-ledger-700">
+          <div className="flex items-center gap-1.5 text-ledger-300">
+            <Cpu className="w-3.5 h-3.5 text-recon-indigo" />
+            <span className="text-[10px]">Gemini 2.5 Flash</span>
+          </div>
+          <ShieldCheck className="w-3.5 h-3.5 text-recon-emerald" />
         </div>
       </div>
     </aside>
