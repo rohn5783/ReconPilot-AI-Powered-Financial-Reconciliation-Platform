@@ -43,8 +43,8 @@ services:
 
   frontend:
     build:
-      context: .
-      dockerfile: ./frontend/Dockerfile
+      context: ./frontend
+      dockerfile: Dockerfile
     container_name: reconpilot-frontend
     restart: unless-stopped
     ports:
@@ -55,3 +55,4 @@ services:
 volumes:
   pgdata:
     driver: local
+
