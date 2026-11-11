@@ -36,12 +36,12 @@ func TestConfigLoadDefaults(t *testing.T) {
 		t.Errorf("expected default GeminiModel gemini-2.5-flash, got %s", cfg.AI.GeminiModel)
 	}
 
-	if cfg.Auth.APIKey != "reconpilot-secret-dev-key" {
-		t.Errorf("expected default AUTH_API_KEY reconpilot-secret-dev-key, got %s", cfg.Auth.APIKey)
+	if cfg.Matching.ContractFeeRate != "0.0200" {
+		t.Errorf("expected default ContractFeeRate 0.0200, got %s", cfg.Matching.ContractFeeRate)
 	}
 
-	if !cfg.AutoSeedOnEmpty {
-		t.Errorf("expected default AutoSeedOnEmpty true")
+	if cfg.AutoSeedOnEmpty {
+		t.Errorf("expected default AutoSeedOnEmpty false")
 	}
 }
 

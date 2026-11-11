@@ -9,13 +9,18 @@ import {
 } from '../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
-const API_KEY = import.meta.env.VITE_AUTH_API_KEY || 'reconpilot-secret-dev-key';
+
+export function getApiKey(): string {
+  return import.meta.env.VITE_AUTH_API_KEY || localStorage.getItem('RECONPILOT_API_KEY') || '';
+}
 
 function getHeaders(extraHeaders: Record<string, string> = {}): HeadersInit {
-  return {
-    'X-API-Key': API_KEY,
-    ...extraHeaders,
-  };
+  const headers: Record<string, string> = { ...extraHeaders };
+  const key = getApiKey();
+  if (key) {
+    headers['X-API-Key'] = key;
+  }
+  return headers;
 }
 
 export const apiClient = {
@@ -99,7 +104,9 @@ export const apiClient = {
   },
 
   exportReport(format: 'csv' | 'json', target: 'traces' | 'discrepancies' = 'traces'): void {
-    const url = `${API_BASE}/export?format=${format}&target=${target}&api_key=${encodeURIComponent(API_KEY)}`;
+    const key = getApiKey();
+    const query = key ? `&api_key=${encodeURIComponent(key)}` : '';
+    const url = `${API_BASE}/export?format=${format}&target=${target}${query}`;
     const link = document.createElement('a');
     link.href = url;
     link.setAttribute('download', `reconpilot-${target}.${format}`);
@@ -109,7 +116,9 @@ export const apiClient = {
   },
 
   subscribeTelemetry(onEvent: (event: PipelineTelemetryEvent) => void): () => void {
-    const sseUrl = `${API_BASE}/reconcile/stream?api_key=${encodeURIComponent(API_KEY)}`;
+    const key = getApiKey();
+    const query = key ? `?api_key=${encodeURIComponent(key)}` : '';
+    const sseUrl = `${API_BASE}/reconcile/stream${query}`;
     const eventSource = new EventSource(sseUrl);
 
     eventSource.onmessage = (event) => {

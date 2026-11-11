@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"reconpilot/internal/ai"
 	"reconpilot/internal/domain"
@@ -14,7 +15,7 @@ import (
 
 func TestReconciliationServiceLifecycle(t *testing.T) {
 	ctx := context.Background()
-	repo := repository.NewMockRepository(true)
+	repo := repository.NewMockRepository(false)
 	engine := matching.NewEngine(matching.DefaultEngineConfig())
 	aiClient, err := ai.NewClient(ctx, "", "gemini-2.5-flash")
 	if err != nil {
@@ -24,13 +25,72 @@ func TestReconciliationServiceLifecycle(t *testing.T) {
 
 	svc := NewReconciliationService(repo, engine, aiClient, hub)
 
+	// Feed dynamic test records (no hardcoded pre-seeded data)
+	testOrders := []domain.Order{
+		{
+			OrderID:     "ORD-TEST-001",
+			CustomerID:  "CUST-001",
+			GrossAmount: money.FromInt(10000),
+			Currency:    "INR",
+			OrderStatus: domain.OrderStatusCaptured,
+			CreatedAt:   time.Now().UTC(),
+		},
+		{
+			OrderID:     "ORD-TEST-002",
+			CustomerID:  "CUST-002",
+			GrossAmount: money.FromInt(20000),
+			Currency:    "INR",
+			OrderStatus: domain.OrderStatusCaptured,
+			CreatedAt:   time.Now().UTC(),
+		},
+	}
+	testPG := []domain.PGSettlement{
+		{
+			PGTxnID:      "pay_test_001",
+			OrderID:      "ORD-TEST-001",
+			GrossAmount:  money.FromInt(10000),
+			PGFee:        money.FromInt(200),
+			Tax:          money.FromStringOrZero("36.0000"),
+			NetAmount:    money.FromStringOrZero("9764.0000"),
+			PayoutID:     "PO-TEST-01",
+			PayoutStatus: domain.PayoutStatusSettled,
+			SettledAt:    time.Now().UTC(),
+		},
+		{
+			// Discrepancy: fee overcharge on ORD-TEST-002
+			PGTxnID:      "pay_test_002",
+			OrderID:      "ORD-TEST-002",
+			GrossAmount:  money.FromInt(20000),
+			PGFee:        money.FromInt(600), // higher fee
+			Tax:          money.FromStringOrZero("108.0000"),
+			NetAmount:    money.FromStringOrZero("19292.0000"),
+			PayoutID:     "PO-TEST-01",
+			PayoutStatus: domain.PayoutStatusSettled,
+			SettledAt:    time.Now().UTC(),
+		},
+	}
+	testBank := []domain.BankStatement{
+		{
+			BankTxnID:       "BNK-TEST-001",
+			UTRNumber:       "UTRTEST001",
+			CreditAmount:    money.FromStringOrZero("29056.0000"),
+			Description:     "CMS CREDIT PO-TEST-01",
+			TransactionDate: time.Now().UTC(),
+		},
+	}
+
+	_, err = svc.RunReconciliation(ctx, testOrders, testPG, testBank)
+	if err != nil {
+		t.Fatalf("RunReconciliation failed: %v", err)
+	}
+
 	// Summary check
 	summary, err := svc.GetSummary(ctx)
 	if err != nil {
 		t.Fatalf("GetSummary failed: %v", err)
 	}
-	if summary.TotalOrders < 5 {
-		t.Errorf("Expected at least 5 orders in summary, got %d", summary.TotalOrders)
+	if summary.TotalOrders != 2 {
+		t.Errorf("Expected 2 orders in summary, got %d", summary.TotalOrders)
 	}
 
 	// Traces check
@@ -38,17 +98,17 @@ func TestReconciliationServiceLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetTraces failed: %v", err)
 	}
-	if total < 5 || len(traces) == 0 {
-		t.Errorf("Expected traces, got %d", total)
+	if total != 2 || len(traces) != 2 {
+		t.Errorf("Expected 2 traces, got %d", total)
 	}
 
 	// Search filter
-	filteredTraces, _, err := svc.GetTraces(ctx, "ORD-IN-1006", "", 10, 0)
+	filteredTraces, _, err := svc.GetTraces(ctx, "ORD-TEST-001", "", 10, 0)
 	if err != nil {
 		t.Fatalf("GetTraces with search failed: %v", err)
 	}
-	if len(filteredTraces) == 0 || filteredTraces[0].OrderID != "ORD-IN-1006" {
-		t.Errorf("Expected to find ORD-IN-1006, got %+v", filteredTraces)
+	if len(filteredTraces) == 0 || filteredTraces[0].OrderID != "ORD-TEST-001" {
+		t.Errorf("Expected to find ORD-TEST-001, got %+v", filteredTraces)
 	}
 
 	// Payout batches check
@@ -56,8 +116,8 @@ func TestReconciliationServiceLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetPayoutBatches failed: %v", err)
 	}
-	if len(batches) == 0 {
-		t.Errorf("Expected at least 1 payout batch group, got 0")
+	if len(batches) != 1 {
+		t.Errorf("Expected 1 payout batch group, got %d", len(batches))
 	}
 
 	// Discrepancies check
@@ -124,4 +184,3 @@ func TestExportService(t *testing.T) {
 		t.Errorf("Expected non-empty JSON output")
 	}
 }
-

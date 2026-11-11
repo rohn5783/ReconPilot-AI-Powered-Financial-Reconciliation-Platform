@@ -213,7 +213,7 @@ func runServeCLI(cmd *cobra.Command, args []string) {
 		cfg.Server.Port = serverPort
 	}
 
-	repo := repository.NewMockRepository(true)
+	repo := repository.NewMockRepository(false)
 	aiClient, _ := ai.NewClient(ctx, cfg.AI.GeminiAPIKey, cfg.AI.GeminiModel)
 	engine := matching.NewEngine(matching.DefaultEngineConfig())
 	hub := stream.NewHub()

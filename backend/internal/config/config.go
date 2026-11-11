@@ -14,12 +14,20 @@ import (
 type Config struct {
 	Pipeline        PipelineConfig `mapstructure:",squash"`
 	Security        SecurityConfig `mapstructure:",squash"`
+	Matching        MatchingConfig `mapstructure:",squash"`
 	AI              AIConfig       `mapstructure:",squash"`
 	Auth            AuthConfig     `mapstructure:",squash"`
 	MockMode        bool           `mapstructure:"MOCK_MODE"`
 	AutoSeedOnEmpty bool           `mapstructure:"AUTO_SEED_ON_EMPTY"`
 	Database        DatabaseConfig `mapstructure:",squash"`
 	Server          ServerConfig   `mapstructure:",squash"`
+}
+
+// MatchingConfig configures dynamic contract rates and matching thresholds.
+type MatchingConfig struct {
+	ContractFeeRate string `mapstructure:"CONTRACT_FEE_RATE"`
+	ContractTaxRate string `mapstructure:"CONTRACT_TAX_RATE"`
+	FeeTolerance    string `mapstructure:"FEE_TOLERANCE"`
 }
 
 // PipelineConfig controls concurrency, timeouts, and bounded streaming buffers.
@@ -69,9 +77,12 @@ func Load() (*Config, error) {
 	v.SetDefault("GEMINI_API_KEY", "")
 	v.SetDefault("GEMINI_MODEL", "gemini-2.5-flash")
 
-	v.SetDefault("AUTH_API_KEY", "reconpilot-secret-dev-key")
+	v.SetDefault("AUTH_API_KEY", "")
 	v.SetDefault("MOCK_MODE", false)
-	v.SetDefault("AUTO_SEED_ON_EMPTY", true)
+	v.SetDefault("AUTO_SEED_ON_EMPTY", false)
+	v.SetDefault("CONTRACT_FEE_RATE", "0.0200")
+	v.SetDefault("CONTRACT_TAX_RATE", "0.1800")
+	v.SetDefault("FEE_TOLERANCE", "0.0100")
 
 	v.SetDefault("DATABASE_URL", "postgres://reconpilot:reconpilot@localhost:5432/reconpilot?sslmode=disable")
 	v.SetDefault("PORT", 8080)
@@ -108,6 +119,15 @@ func Load() (*Config, error) {
 	if autoSeed := os.Getenv("AUTO_SEED_ON_EMPTY"); autoSeed != "" {
 		cfg.AutoSeedOnEmpty = (autoSeed == "true" || autoSeed == "1")
 	}
+	if feeRate := os.Getenv("CONTRACT_FEE_RATE"); feeRate != "" {
+		cfg.Matching.ContractFeeRate = feeRate
+	}
+	if taxRate := os.Getenv("CONTRACT_TAX_RATE"); taxRate != "" {
+		cfg.Matching.ContractTaxRate = taxRate
+	}
+	if tol := os.Getenv("FEE_TOLERANCE"); tol != "" {
+		cfg.Matching.FeeTolerance = tol
+	}
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
 		cfg.Database.URL = dbURL
 	}
@@ -135,10 +155,6 @@ func (c *Config) Validate() error {
 
 	if c.Pipeline.RingBufferSizeKB < 64 {
 		return errors.New("PIPELINE_RING_BUFFER_SIZE_KB must be at least 64 KB")
-	}
-
-	if strings.TrimSpace(c.Auth.APIKey) == "" {
-		return errors.New("AUTH_API_KEY must not be empty")
 	}
 
 	if strings.TrimSpace(c.Database.URL) == "" && !c.MockMode {

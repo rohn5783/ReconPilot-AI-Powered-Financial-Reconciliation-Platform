@@ -111,8 +111,13 @@ export const ThreeWayExplorerView: React.FC = () => {
           <tbody className="divide-y divide-ledger-700/60 font-mono">
             {traces.length === 0 ? (
               <tr>
-                <td colSpan={4} className="py-12 text-center text-ledger-400">
-                  No transaction traces match your active search filters.
+                <td colSpan={4} className="py-16 text-center text-ledger-400">
+                  <div className="max-w-sm mx-auto space-y-1.5 font-sans">
+                    <p className="font-semibold text-white text-xs">No Ledger Transactions Found</p>
+                    <p className="text-[11px] text-ledger-400 leading-relaxed">
+                      Upload your Orders, Payment Gateway Settlements, or Bank Statement CSV files in Streaming Ingestion to run real-time 3-way reconciliation.
+                    </p>
+                  </div>
                 </td>
               </tr>
             ) : (

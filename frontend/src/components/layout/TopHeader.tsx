@@ -33,7 +33,7 @@ export const TopHeader: React.FC = () => {
       {/* Brand & Environment */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded bg-gradient-to-br from-recon-emerald/20 to-recon-indigo/30 border border-recon-emerald/40 flex items-center justify-center">
+          <div className="w-7 h-7 rounded bg-ledger-800 border border-recon-emerald/40 flex items-center justify-center">
             <Activity className="w-4 h-4 text-recon-emerald animate-pulse" />
           </div>
           <div>
@@ -51,11 +51,11 @@ export const TopHeader: React.FC = () => {
 
         {/* Live Database/Engine Indicator */}
         <div className="flex items-center gap-2 px-2.5 py-1 rounded bg-ledger-900 border border-ledger-700 text-xs">
-          <Database className="w-3.5 h-3.5 text-recon-indigo" />
-          <span className="text-ledger-300 font-mono text-[11px]">HYBRID REPO:</span>
+          <Database className="w-3.5 h-3.5 text-ledger-400" />
+          <span className="text-ledger-300 font-mono text-[11px]">LEDGER ENGINE:</span>
           <span className="inline-flex items-center gap-1.5 text-recon-emerald font-medium text-[11px]">
             <span className="w-1.5 h-1.5 rounded-full bg-recon-emerald animate-ping" />
-            ACTIVE
+            ONLINE
           </span>
         </div>
 

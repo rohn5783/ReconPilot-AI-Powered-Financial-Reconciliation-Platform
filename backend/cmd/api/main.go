@@ -42,14 +42,14 @@ func main() {
 	var repo repository.ReconciliationRepository
 
 	if cfg.MockMode || cfg.Database.URL == "" {
-		log.Println("[STORAGE] MOCK_MODE=true or empty DATABASE_URL: Starting in-memory mock repository with pre-seeded data")
-		repo = repository.NewMockRepository(true)
+		log.Println("[STORAGE] MOCK_MODE=true or empty DATABASE_URL: Starting clean in-memory repository")
+		repo = repository.NewMockRepository(false)
 	} else {
 		log.Printf("[STORAGE] Connecting to PostgreSQL database...")
 		pgRepo, err := repository.NewPostgresRepository(ctx, cfg.Database.URL)
 		if err != nil {
-			log.Printf("[WARN] Failed to connect to PostgreSQL (%v). Seamlessly falling back to in-memory mock repository.", err)
-			repo = repository.NewMockRepository(true)
+			log.Printf("[WARN] Failed to connect to PostgreSQL (%v). Seamlessly falling back to clean in-memory repository.", err)
+			repo = repository.NewMockRepository(false)
 		} else {
 			log.Println("[STORAGE] Connected to PostgreSQL with connection pool successfully.")
 			repo = pgRepo
@@ -65,11 +65,11 @@ func main() {
 		log.Printf("[AI] Gemini AI Diagnostician initialized successfully.")
 	}
 
-	// 4. Initialize 3-Way Matching Engine
+	// 4. Initialize 3-Way Matching Engine with dynamic contract rates
 	engineCfg := matching.EngineConfig{
-		DefaultFeeRate: money.FromStringOrZero("0.0200"),
-		DefaultTaxRate: money.FromStringOrZero("0.1800"),
-		FeeTolerance:   money.FromStringOrZero("0.0100"),
+		DefaultFeeRate: money.FromStringOrZero(cfg.Matching.ContractFeeRate),
+		DefaultTaxRate: money.FromStringOrZero(cfg.Matching.ContractTaxRate),
+		FeeTolerance:   money.FromStringOrZero(cfg.Matching.FeeTolerance),
 		MaxConcurrency: cfg.Pipeline.MaxConcurrentBatches,
 	}
 	matchingEngine := matching.NewEngine(engineCfg)
@@ -81,14 +81,16 @@ func main() {
 	reconSvc := service.NewReconciliationService(repo, matchingEngine, aiClient, hub)
 	exportSvc := service.NewExportService()
 
-	// 6.1. Bootstrap database if empty or auto-seeding enabled
-	if err := seed.BootstrapIfEmpty(ctx, repo, cfg.AutoSeedOnEmpty, func(reconcileCtx context.Context) error {
-		_, err := reconSvc.RunReconciliation(reconcileCtx, nil, nil, nil)
-		return err
-	}); err != nil {
-		log.Printf("[WARN] Startup dataset bootstrap warning: %v", err)
+	// 6.1. Prime reconciliation from existing database data (zero hardcoded auto-injection)
+	if cfg.AutoSeedOnEmpty {
+		log.Println("[STORAGE] AUTO_SEED_ON_EMPTY is enabled. Bootstrapping initial records...")
+		_ = seed.BootstrapIfEmpty(ctx, repo, true, func(reconcileCtx context.Context) error {
+			_, err := reconSvc.RunReconciliation(reconcileCtx, nil, nil, nil)
+			return err
+		})
 	} else {
-		log.Printf("[BOOTSTRAP] Startup database check & initial 3-way reconciliation complete.")
+		// Run initial reconciliation on existing persistent records
+		_, _ = reconSvc.RunReconciliation(ctx, nil, nil, nil)
 	}
 
 	// 7. Initialize Gin HTTP Router

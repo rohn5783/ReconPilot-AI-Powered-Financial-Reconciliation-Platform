@@ -26,7 +26,7 @@ func setupTestRouter(t *testing.T) (*http.Handler, *config.Config) {
 		},
 	}
 
-	repo := repository.NewMockRepository(true)
+	repo := repository.NewMockRepository(false)
 	engine := matching.NewEngine(matching.DefaultEngineConfig())
 	aiClient, err := ai.NewClient(ctx, "", "gemini-2.5-flash")
 	if err != nil {
