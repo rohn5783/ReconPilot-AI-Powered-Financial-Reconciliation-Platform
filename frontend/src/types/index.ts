@@ -112,9 +112,13 @@ export interface PayoutBatchGroup {
   total_expected_net: string;
   bank_credit?: string;
   bank_utr?: string;
+  variance?: string;
+  settled_at?: string;
   status: 'MATCHED' | 'SHORTFALL' | 'SURPLUS' | 'BANK_MISSING';
   discrepancy?: Discrepancy;
 }
+
+export type PayoutBatch = PayoutBatchGroup;
 
 export interface ReconciliationSummary {
   total_orders: number;

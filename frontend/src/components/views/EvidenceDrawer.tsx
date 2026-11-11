@@ -127,8 +127,48 @@ export const EvidenceDrawer: React.FC = () => {
             </div>
           </div>
 
+          {/* Side-by-Side 3-Way Comparative Math Table (Order -> PG Fee Math -> Bank UTR) */}
+          <div className="p-3.5 rounded-lg bg-ledger-900 border border-ledger-700 space-y-2.5 font-mono">
+            <div className="flex items-center justify-between text-xs text-ledger-300 font-semibold uppercase tracking-wider">
+              <span>3-Way Mathematical Ledger Comparison</span>
+              <span className="text-[10px] text-recon-cyan">Order → PG Fee → Bank UTR</span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2.5 text-[11px] pt-1">
+              {/* Column 1: ERP Order */}
+              <div className="p-2.5 rounded bg-ledger-850 border border-ledger-750 space-y-1.5">
+                <div className="text-[10px] text-recon-cyan font-bold uppercase pb-1 border-b border-ledger-700">
+                  1. ERP Order
+                </div>
+                <div><span className="text-ledger-400">Order ID:</span> <span className="text-white font-medium">{d.order_id || 'N/A'}</span></div>
+                <div><span className="text-ledger-400">Gross:</span> <span className="text-white font-bold">{d.raw_evidence.order ? formatCurrency(d.raw_evidence.order.gross_amount) : (d.expected_amount ? formatCurrency(d.expected_amount) : '—')}</span></div>
+                <div><span className="text-ledger-400">Status:</span> <span className="text-emerald-400 font-medium">{d.raw_evidence.order?.order_status || 'CAPTURED'}</span></div>
+              </div>
+
+              {/* Column 2: PG Settlement */}
+              <div className="p-2.5 rounded bg-ledger-850 border border-ledger-750 space-y-1.5">
+                <div className="text-[10px] text-recon-amber font-bold uppercase pb-1 border-b border-ledger-700">
+                  2. Gateway Fee Math
+                </div>
+                <div><span className="text-ledger-400">MDR Fee:</span> <span className="text-recon-amber">{d.raw_evidence.pg_settlement ? '−' + formatCurrency(d.raw_evidence.pg_settlement.pg_fee) : '2.0% MDR'}</span></div>
+                <div><span className="text-ledger-400">GST (18%):</span> <span className="text-recon-amber">{d.raw_evidence.pg_settlement ? '−' + formatCurrency(d.raw_evidence.pg_settlement.tax) : '18% ITC'}</span></div>
+                <div><span className="text-ledger-400">Net Settled:</span> <span className="text-recon-emerald font-bold">{d.raw_evidence.pg_settlement ? formatCurrency(d.raw_evidence.pg_settlement.net_amount) : formatCurrency(d.actual_amount)}</span></div>
+              </div>
+
+              {/* Column 3: Bank Credit UTR */}
+              <div className="p-2.5 rounded bg-ledger-850 border border-ledger-750 space-y-1.5">
+                <div className="text-[10px] text-recon-emerald font-bold uppercase pb-1 border-b border-ledger-700">
+                  3. Bank Nodal Credit
+                </div>
+                <div><span className="text-ledger-400">Payout/UTR:</span> <span className="text-recon-cyan font-medium truncate block">{d.payout_id || d.raw_evidence.bank_statement?.utr_number || 'UNASSIGNED'}</span></div>
+                <div><span className="text-ledger-400">Bank Credit:</span> <span className={d.raw_evidence.bank_statement ? 'text-white font-bold' : 'text-recon-crimson font-bold'}>{d.raw_evidence.bank_statement ? formatCurrency(d.raw_evidence.bank_statement.credit_amount) : (d.discrepancy_level === 'LEVEL_2_PG_BANK' ? 'ZERO CREDIT' : 'CLEARED IN BATCH')}</span></div>
+                <div><span className="text-ledger-400">Clearing:</span> <span className="text-ledger-300 font-medium">Verified RTGS/NEFT</span></div>
+              </div>
+            </div>
+          </div>
+
           {/* AI Forensic Diagnosis Card */}
-          <div className="p-4 rounded-lg bg-gradient-to-br from-indigo-950/30 to-purple-950/20 border border-recon-indigo/30 space-y-3">
+          <div className="p-4 rounded-lg bg-ledger-900 border border-recon-cyan/40 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-recon-indigo font-semibold">
                 <Sparkles className="w-4 h-4" />

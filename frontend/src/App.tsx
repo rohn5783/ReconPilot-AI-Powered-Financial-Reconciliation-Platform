@@ -13,21 +13,21 @@ import { BottomTelemetryDock } from './components/layout/BottomTelemetryDock';
 import { CommandPalette } from './components/command/CommandPalette';
 
 export const App: React.FC = () => {
-  const { activeView, fetchAllData, addTelemetryEvent } = useReconStore();
+  const activeView = useReconStore((state) => state.activeView);
 
   useEffect(() => {
-    // 1. Initial data fetch
-    fetchAllData();
+    // 1. Initial data fetch on mount
+    useReconStore.getState().fetchAllData();
 
-    // 2. Connect to live real-time SSE stream
+    // 2. Connect to live real-time persistent SSE stream (single connection, zero reconnect loops)
     const unsubscribe = apiClient.subscribeTelemetry((event) => {
-      addTelemetryEvent(event);
+      useReconStore.getState().addTelemetryEvent(event);
     });
 
     return () => {
       unsubscribe();
     };
-  }, [fetchAllData, addTelemetryEvent]);
+  }, []);
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-ledger-900 text-ledger-100 font-sans">

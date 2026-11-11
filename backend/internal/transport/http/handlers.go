@@ -263,16 +263,34 @@ func (h *Handler) TriggerReconciliation(c *gin.Context) {
 }
 
 // StreamTelemetry streams real-time pipeline events and progress over Server-Sent Events (SSE).
+// Keeps the connection persistently open with a 15s heartbeat ticker and X-Accel-Buffering: no.
 func (h *Handler) StreamTelemetry(c *gin.Context) {
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
 	c.Writer.Header().Set("Transfer-Encoding", "chunked")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
 
 	ch, unsubscribe := h.reconSvc.Hub().Subscribe()
 	defer unsubscribe()
 
 	c.Writer.Flush()
+
+	// Initial connection handshake message
+	initEvt := domain.PipelineTelemetryEvent{
+		Type:               "connected",
+		Stage:              "READY",
+		ProgressPercentage: 100.0,
+		Message:            "ReconPilot persistent SSE stream established",
+		Timestamp:          time.Now().UTC(),
+	}
+	if initBytes, err := json.Marshal(initEvt); err == nil {
+		_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", string(initBytes))
+		c.Writer.Flush()
+	}
+
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
 
 	clientGone := c.Request.Context().Done()
 
@@ -280,6 +298,10 @@ func (h *Handler) StreamTelemetry(c *gin.Context) {
 		select {
 		case <-clientGone:
 			return
+		case <-ticker.C:
+			// 15s keep-alive heartbeat comment (ignored by JSON parsers, prevents proxy timeouts)
+			_, _ = fmt.Fprintf(c.Writer, ": keep-alive\n\n")
+			c.Writer.Flush()
 		case evt, ok := <-ch:
 			if !ok {
 				return

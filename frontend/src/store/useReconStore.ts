@@ -25,6 +25,8 @@ interface ReconState {
   statusFilter: 'all' | 'reconciled' | 'discrepancy';
   levelFilter: 'all' | 'LEVEL_1_ORDER_PG' | 'LEVEL_2_PG_BANK';
   severityFilter: 'all' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  discrepancyStatusFilter: 'all' | 'OPEN' | 'IN_DISPUTE' | 'RESOLVED';
+  discrepancyTypeFilter: string;
 
   // Real-time Pipeline & Telemetry
   isLoading: boolean;
@@ -52,6 +54,8 @@ interface ReconState {
   setStatusFilter: (f: 'all' | 'reconciled' | 'discrepancy') => void;
   setLevelFilter: (l: 'all' | 'LEVEL_1_ORDER_PG' | 'LEVEL_2_PG_BANK') => void;
   setSeverityFilter: (s: 'all' | 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW') => void;
+  setDiscrepancyStatusFilter: (st: 'all' | 'OPEN' | 'IN_DISPUTE' | 'RESOLVED') => void;
+  setDiscrepancyTypeFilter: (t: string) => void;
   setActiveView: (v: WorkstationView) => void;
   setCommandPaletteOpen: (open: boolean) => void;
   toggleTelemetryDock: () => void;
@@ -70,6 +74,8 @@ export const useReconStore = create<ReconState>((set, get) => ({
   statusFilter: 'all',
   levelFilter: 'all',
   severityFilter: 'all',
+  discrepancyStatusFilter: 'all',
+  discrepancyTypeFilter: 'all',
 
   isLoading: false,
   isReconciling: false,
@@ -110,11 +116,13 @@ export const useReconStore = create<ReconState>((set, get) => ({
   },
 
   fetchDiscrepancies: async () => {
-    const { levelFilter, severityFilter } = get();
+    const { levelFilter, severityFilter, discrepancyStatusFilter, discrepancyTypeFilter } = get();
     try {
       const filters: Record<string, string> = {};
       if (levelFilter !== 'all') filters.level = levelFilter;
       if (severityFilter !== 'all') filters.severity = severityFilter;
+      if (discrepancyStatusFilter !== 'all') filters.status = discrepancyStatusFilter;
+      if (discrepancyTypeFilter !== 'all') filters.type = discrepancyTypeFilter;
       const res = await apiClient.getDiscrepancies(filters);
       set({ discrepancies: res.data });
     } catch (err) {
@@ -240,6 +248,16 @@ export const useReconStore = create<ReconState>((set, get) => ({
 
   setSeverityFilter: (s) => {
     set({ severityFilter: s });
+    get().fetchDiscrepancies();
+  },
+
+  setDiscrepancyStatusFilter: (st) => {
+    set({ discrepancyStatusFilter: st });
+    get().fetchDiscrepancies();
+  },
+
+  setDiscrepancyTypeFilter: (t) => {
+    set({ discrepancyTypeFilter: t });
     get().fetchDiscrepancies();
   },
 

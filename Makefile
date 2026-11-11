@@ -44,3 +44,4 @@ docker-down:
 clean:
 	@rm -rf bin samples frontend/dist
 	@echo "Cleaned build artifacts."
+

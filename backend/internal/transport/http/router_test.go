@@ -44,15 +44,17 @@ func setupTestRouter(t *testing.T) (*http.Handler, *config.Config) {
 func TestHealthCheck(t *testing.T) {
 	handler, _ := setupTestRouter(t)
 
-	req, _ := http.NewRequest(http.MethodGet, "/health", nil)
-	w := httptest.NewRecorder()
-	(*handler).ServeHTTP(w, req)
+	for _, path := range []string{"/", "/healthz", "/health", "/api/v1/health"} {
+		req, _ := http.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		(*handler).ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("Expected 200 OK, got %d", w.Code)
-	}
-	if !strings.Contains(w.Body.String(), "UP") {
-		t.Errorf("Expected body to contain 'UP', got %s", w.Body.String())
+		if w.Code != http.StatusOK {
+			t.Errorf("Path %s: Expected 200 OK, got %d", path, w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "UP") {
+			t.Errorf("Path %s: Expected body to contain 'UP', got %s", path, w.Body.String())
+		}
 	}
 }
 

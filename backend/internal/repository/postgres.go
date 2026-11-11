@@ -52,8 +52,97 @@ func NewPostgresRepository(ctx context.Context, databaseURL string) (*PostgresRe
 		bank:          &PostgresBankRepo{pool: pool},
 		discrepancies: &PostgresDiscrepancyRepo{pool: pool},
 	}
+
+	if err := repo.AutoMigrate(ctx); err != nil {
+		return nil, fmt.Errorf("auto migrate postgres schema: %w", err)
+	}
+
 	return repo, nil
 }
+
+func (r *PostgresRepository) AutoMigrate(ctx context.Context) error {
+	_, err := r.pool.Exec(ctx, schemaDDL)
+	return err
+}
+
+const schemaDDL = `
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+CREATE TABLE IF NOT EXISTS orders (
+    order_id VARCHAR(128) PRIMARY KEY,
+    customer_id VARCHAR(128) NOT NULL,
+    gross_amount NUMERIC(18, 4) NOT NULL CHECK (gross_amount >= 0),
+    currency VARCHAR(10) NOT NULL DEFAULT 'INR',
+    order_status VARCHAR(64) NOT NULL CHECK (order_status IN ('CAPTURED', 'PENDING', 'FAILED', 'REFUNDED')),
+    created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_orders_customer_id ON orders(customer_id);
+CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(order_status);
+
+CREATE TABLE IF NOT EXISTS pg_settlements (
+    pg_txn_id VARCHAR(128) PRIMARY KEY,
+    order_id VARCHAR(128) NOT NULL,
+    gross_amount NUMERIC(18, 4) NOT NULL CHECK (gross_amount >= 0),
+    pg_fee NUMERIC(18, 4) NOT NULL CHECK (pg_fee >= 0),
+    tax NUMERIC(18, 4) NOT NULL CHECK (tax >= 0),
+    net_amount NUMERIC(18, 4) NOT NULL,
+    payout_id VARCHAR(128) NOT NULL,
+    payout_status VARCHAR(64) NOT NULL CHECK (payout_status IN ('SETTLED', 'PROCESSED', 'PENDING', 'FAILED')),
+    settled_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_pg_settlements_order_id ON pg_settlements(order_id);
+CREATE INDEX IF NOT EXISTS idx_pg_settlements_payout_id ON pg_settlements(payout_id);
+CREATE INDEX IF NOT EXISTS idx_pg_settlements_settled_at ON pg_settlements(settled_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pg_settlements_payout_status ON pg_settlements(payout_status);
+
+CREATE TABLE IF NOT EXISTS bank_statements (
+    bank_txn_id VARCHAR(128) PRIMARY KEY,
+    utr_number VARCHAR(128) UNIQUE NOT NULL,
+    credit_amount NUMERIC(18, 4) NOT NULL CHECK (credit_amount >= 0),
+    description TEXT NOT NULL,
+    transaction_date TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_bank_statements_utr ON bank_statements(utr_number);
+CREATE INDEX IF NOT EXISTS idx_bank_statements_txn_date ON bank_statements(transaction_date DESC);
+
+CREATE TABLE IF NOT EXISTS discrepancies (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_id VARCHAR(128) NULL,
+    payout_id VARCHAR(128) NULL,
+    discrepancy_level VARCHAR(32) NOT NULL CHECK (discrepancy_level IN ('LEVEL_1_ORDER_PG', 'LEVEL_2_PG_BANK')),
+    discrepancy_type VARCHAR(64) NOT NULL CHECK (discrepancy_type IN (
+        'FEE_OVERCHARGE',
+        'TAX_CALCULATION_ERROR',
+        'ORDER_MISSING_IN_PG',
+        'PG_ORPHAN_TXN',
+        'CAPTURE_STATUS_MISMATCH',
+        'GROSS_AMOUNT_MISMATCH',
+        'UNSETTLED_PAYOUT',
+        'BANK_MISSING',
+        'PAYOUT_SHORTFALL',
+        'PAYOUT_SURPLUS'
+    )),
+    expected_amount NUMERIC(18, 4) NOT NULL,
+    actual_amount NUMERIC(18, 4) NOT NULL,
+    mismatch_amount NUMERIC(18, 4) NOT NULL,
+    severity VARCHAR(32) NOT NULL CHECK (severity IN ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW')),
+    raw_evidence JSONB NOT NULL,
+    ai_diagnosis JSONB NULL,
+    status VARCHAR(64) NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'IN_DISPUTE', 'RESOLVED', 'WRITTEN_OFF')),
+    detected_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_discrepancies_order_id ON discrepancies(order_id);
+CREATE INDEX IF NOT EXISTS idx_discrepancies_payout_id ON discrepancies(payout_id);
+CREATE INDEX IF NOT EXISTS idx_discrepancies_level_type ON discrepancies(discrepancy_level, discrepancy_type);
+CREATE INDEX IF NOT EXISTS idx_discrepancies_status ON discrepancies(status);
+CREATE INDEX IF NOT EXISTS idx_discrepancies_severity ON discrepancies(severity);
+CREATE INDEX IF NOT EXISTS idx_discrepancies_detected_at ON discrepancies(detected_at DESC);
+`
 
 func (r *PostgresRepository) Orders() OrderRepository             { return r.orders }
 func (r *PostgresRepository) PG() PGRepository                     { return r.pg }

@@ -100,29 +100,35 @@ export const PayoutBatchesView: React.FC = () => {
                 </div>
 
                 {/* Arithmetic breakdown strip */}
-                <div className="grid grid-cols-4 gap-4 mt-3 pt-3 border-t border-ledger-700/60 text-xs font-mono">
+                <div className="grid grid-cols-5 gap-3 mt-3 pt-3 border-t border-ledger-700/60 text-xs font-mono">
                   <div>
-                    <span className="text-ledger-400 block text-[10px] uppercase">Total Gross Volume</span>
+                    <span className="text-ledger-400 block text-[10px] uppercase">Gross Total</span>
                     <span className="font-semibold text-white">{formatCurrency(batch.total_gross)}</span>
                   </div>
                   <div>
-                    <span className="text-ledger-400 block text-[10px] uppercase">Deductions (Fee + GST)</span>
+                    <span className="text-ledger-400 block text-[10px] uppercase">Total Fees & Tax</span>
                     <span className="text-recon-amber">
-                      −{formatCurrency(batch.total_fee)} / −{formatCurrency(batch.total_tax)}
+                      −{formatCurrency(batch.total_fee)} (Tax: {formatCurrency(batch.total_tax)})
                     </span>
                   </div>
                   <div>
-                    <span className="text-ledger-400 block text-[10px] uppercase">Expected Net Remittance</span>
+                    <span className="text-ledger-400 block text-[10px] uppercase">Expected Net Payout</span>
                     <span className="font-bold text-recon-emerald">{formatCurrency(batch.total_expected_net)}</span>
                   </div>
                   <div>
-                    <span className="text-ledger-400 block text-[10px] uppercase">Bank Credited UTR</span>
-                    <div className="flex items-center gap-1.5 mt-0.5">
+                    <span className="text-ledger-400 block text-[10px] uppercase">Bank Credited</span>
+                    <div className="flex items-center gap-1 mt-0.5">
                       <Landmark className="w-3 h-3 text-recon-cyan" />
-                      <span className={batch.bank_credit ? 'font-bold text-white' : 'text-recon-crimson'}>
-                        {batch.bank_credit ? formatCurrency(batch.bank_credit) : 'ZERO CREDIT FOUND'}
+                      <span className={batch.bank_credit ? 'font-bold text-white' : 'text-recon-crimson font-bold'}>
+                        {batch.bank_credit ? formatCurrency(batch.bank_credit) : '₹0.00'}
                       </span>
                     </div>
+                  </div>
+                  <div>
+                    <span className="text-ledger-400 block text-[10px] uppercase">Variance (Delta)</span>
+                    <span className={`font-bold ${isMatched ? 'text-recon-emerald' : 'text-recon-crimson'}`}>
+                      {batch.variance ? formatCurrency(batch.variance) : (isMatched ? '₹0.00' : '−' + formatCurrency(batch.total_expected_net))}
+                    </span>
                   </div>
                 </div>
 

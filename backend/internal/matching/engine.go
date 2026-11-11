@@ -404,12 +404,18 @@ func (e *Engine) Reconcile(
 			TotalFee:         totalFee,
 			TotalTax:         totalTax,
 			TotalExpectedNet: totalExpectedNet,
+			Variance:         money.Zero(),
 			Status:           "MATCHED",
+		}
+		if len(batchItems) > 0 {
+			settledTime := batchItems[0].SettledAt
+			group.SettledAt = &settledTime
 		}
 
 		if matchedBank == nil {
 			// Bank Missing / Uncredited Payout
 			group.Status = "BANK_MISSING"
+			group.Variance = totalExpectedNet.Neg()
 			disc := domain.Discrepancy{
 				ID:               uuid.New(),
 				PayoutID:         stringPtr(pid),
@@ -439,6 +445,9 @@ func (e *Engine) Reconcile(
 		} else {
 			group.BankCredit = &matchedBank.CreditAmount
 			group.BankUTR = &matchedBank.UTRNumber
+			group.Variance = matchedBank.CreditAmount.Sub(totalExpectedNet)
+			bankTxnDate := matchedBank.TransactionDate
+			group.SettledAt = &bankTxnDate
 
 			diff := matchedBank.CreditAmount.Sub(totalExpectedNet)
 			if diff.LessThan(money.Zero()) && diff.Abs().GreaterThan(e.config.FeeTolerance) {

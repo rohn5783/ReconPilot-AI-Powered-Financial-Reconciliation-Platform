@@ -174,9 +174,14 @@ type PayoutBatchGroup struct {
 	TotalExpectedNet money.Decimal  `json:"total_expected_net"`
 	BankCredit       *money.Decimal `json:"bank_credit,omitempty"`
 	BankUTR          *string        `json:"bank_utr,omitempty"`
+	Variance         money.Decimal  `json:"variance"`
 	Status           string         `json:"status"` // MATCHED, SHORTFALL, SURPLUS, BANK_MISSING
+	SettledAt        *time.Time     `json:"settled_at,omitempty"`
 	Discrepancy      *Discrepancy   `json:"discrepancy,omitempty"`
 }
+
+// PayoutBatch is an alias for PayoutBatchGroup.
+type PayoutBatch = PayoutBatchGroup
 
 // ReconciliationSummary provides high-density financial KPIs for the workstation header.
 type ReconciliationSummary struct {

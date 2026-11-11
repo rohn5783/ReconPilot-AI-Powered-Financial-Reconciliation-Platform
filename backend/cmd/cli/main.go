@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -15,6 +16,7 @@ import (
 	"reconpilot/internal/ingestion"
 	"reconpilot/internal/matching"
 	"reconpilot/internal/repository"
+	"reconpilot/internal/seed"
 	"reconpilot/internal/service"
 	transporthttp "reconpilot/internal/transport/http"
 	"reconpilot/internal/transport/stream"
@@ -166,33 +168,39 @@ func runSeedCSVCLI(cmd *cobra.Command, args []string) {
 		log.Fatalf("Failed to create seed directory: %v", err)
 	}
 
-	ordersCSV := `order_id,customer_id,gross_amount,currency,order_status,created_at
-ORD-IN-1001,CUST-IN-901,10000.0000,INR,CAPTURED,2026-11-01 10:00:00
-ORD-IN-1002,CUST-IN-902,20000.0000,INR,CAPTURED,2026-11-01 11:00:00
-ORD-IN-1003,CUST-IN-903,30000.0000,INR,CAPTURED,2026-11-01 12:00:00
-ORD-IN-1006,CUST-IN-906,45000.0000,INR,CAPTURED,2026-11-01 13:00:00
-ORD-IN-1007,CUST-IN-907,18750.0000,INR,CAPTURED,2026-11-01 14:00:00
-ORD-IN-1008,CUST-IN-908,12400.0000,INR,REFUNDED,2026-11-01 15:00:00
-ORD-IN-1009,CUST-IN-909,35000.0000,INR,CAPTURED,2026-11-01 16:00:00
-`
-	pgCSV := `pg_txn_id,order_id,gross_amount,pg_fee,tax,net_amount,payout_id,payout_status,settled_at
-pay_rzp_9001,ORD-IN-1001,10000.0000,200.0000,36.0000,9764.0000,PO-IN-2026-001,SETTLED,2026-11-02 10:00:00
-pay_rzp_9002,ORD-IN-1002,20000.0000,400.0000,72.0000,19528.0000,PO-IN-2026-001,SETTLED,2026-11-02 11:00:00
-pay_rzp_9003,ORD-IN-1003,30000.0000,600.0000,108.0000,29292.0000,PO-IN-2026-001,SETTLED,2026-11-02 12:00:00
-pay_rzp_9006,ORD-IN-1006,45000.0000,1260.0000,226.8000,43513.2000,PO-IN-2026-002,SETTLED,2026-11-02 13:00:00
-pay_rzp_9008,ORD-IN-1008,12400.0000,248.0000,44.6400,12107.3600,PO-IN-2026-002,SETTLED,2026-11-02 14:00:00
-pay_rzp_9009,ORD-IN-1009,31500.0000,630.0000,113.4000,30756.6000,PO-IN-2026-002,SETTLED,2026-11-02 15:00:00
-pay_rzp_8101,ORD-IN-1020,100000.0000,2000.0000,360.0000,97640.0000,PO-IN-2026-081,SETTLED,2026-11-02 16:00:00
-`
-	bankCSV := `bank_txn_id,utr_number,credit_amount,description,transaction_date
-BNK-HDFC-001,HDFCR52026110290101,58584.0000,CMS/RAZORPAY SOFTWARE/PO-IN-2026-001/HDFCR52026110290101,2026-11-02 16:00:00
-BNK-HDFC-002,HDFCR52026110290102,86377.1600,CMS/RAZORPAY SOFTWARE/PO-IN-2026-002/HDFCR52026110290102,2026-11-02 17:00:00
-`
-	_ = os.WriteFile(filepath.Join(seedOutputDir, "orders.csv"), []byte(ordersCSV), 0644)
-	_ = os.WriteFile(filepath.Join(seedOutputDir, "pg_settlements.csv"), []byte(pgCSV), 0644)
-	_ = os.WriteFile(filepath.Join(seedOutputDir, "bank_statements.csv"), []byte(bankCSV), 0644)
+	dataset := seed.BuildRealisticDataset()
 
-	log.Printf("Sample CSV files generated in: %s", seedOutputDir)
+	// Orders CSV
+	var ordersBuf strings.Builder
+	ordersBuf.WriteString("order_id,customer_id,gross_amount,currency,order_status,created_at\n")
+	for _, o := range dataset.Orders {
+		ordersBuf.WriteString(fmt.Sprintf("%s,%s,%s,%s,%s,%s\n",
+			o.OrderID, o.CustomerID, o.GrossAmount.StringFixed(4), o.Currency, o.OrderStatus, o.CreatedAt.Format("2006-01-02 15:04:05")))
+	}
+
+	// PG Settlements CSV
+	var pgBuf strings.Builder
+	pgBuf.WriteString("pg_txn_id,order_id,gross_amount,pg_fee,tax,net_amount,payout_id,payout_status,settled_at\n")
+	for _, s := range dataset.PGSettlements {
+		pgBuf.WriteString(fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+			s.PGTxnID, s.OrderID, s.GrossAmount.StringFixed(4), s.PGFee.StringFixed(4), s.Tax.StringFixed(4),
+			s.NetAmount.StringFixed(4), s.PayoutID, s.PayoutStatus, s.SettledAt.Format("2006-01-02 15:04:05")))
+	}
+
+	// Bank Statements CSV
+	var bankBuf strings.Builder
+	bankBuf.WriteString("bank_txn_id,utr_number,credit_amount,description,transaction_date\n")
+	for _, b := range dataset.BankStatements {
+		bankBuf.WriteString(fmt.Sprintf("%s,%s,%s,%s,%s\n",
+			b.BankTxnID, b.UTRNumber, b.CreditAmount.StringFixed(4), b.Description, b.TransactionDate.Format("2006-01-02 15:04:05")))
+	}
+
+	_ = os.WriteFile(filepath.Join(seedOutputDir, "orders.csv"), []byte(ordersBuf.String()), 0644)
+	_ = os.WriteFile(filepath.Join(seedOutputDir, "pg_settlements.csv"), []byte(pgBuf.String()), 0644)
+	_ = os.WriteFile(filepath.Join(seedOutputDir, "bank_statements.csv"), []byte(bankBuf.String()), 0644)
+
+	log.Printf("Sample CSV files generated in %s: %d orders, %d PG settlements, %d bank statements across 6 batches",
+		seedOutputDir, len(dataset.Orders), len(dataset.PGSettlements), len(dataset.BankStatements))
 }
 
 func runServeCLI(cmd *cobra.Command, args []string) {

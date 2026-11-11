@@ -16,6 +16,10 @@ export const DiscrepanciesView: React.FC = () => {
     setLevelFilter,
     severityFilter,
     setSeverityFilter,
+    discrepancyStatusFilter,
+    setDiscrepancyStatusFilter,
+    discrepancyTypeFilter,
+    setDiscrepancyTypeFilter,
     selectDiscrepancy,
   } = useReconStore();
 
@@ -69,6 +73,35 @@ export const DiscrepanciesView: React.FC = () => {
               Level 2 (PG ↔ Bank)
             </button>
           </div>
+
+          {/* Status Filter */}
+          <select
+            value={discrepancyStatusFilter}
+            onChange={(e) => setDiscrepancyStatusFilter(e.target.value as any)}
+            className="px-2.5 py-1 rounded bg-ledger-900 border border-ledger-700 text-xs text-ledger-300 font-mono focus:outline-none focus:border-ledger-600"
+          >
+            <option value="all">All Statuses</option>
+            <option value="OPEN">Open</option>
+            <option value="IN_DISPUTE">In Dispute</option>
+            <option value="RESOLVED">Resolved</option>
+          </select>
+
+          {/* Type Filter */}
+          <select
+            value={discrepancyTypeFilter}
+            onChange={(e) => setDiscrepancyTypeFilter(e.target.value)}
+            className="px-2.5 py-1 rounded bg-ledger-900 border border-ledger-700 text-xs text-ledger-300 font-mono focus:outline-none focus:border-ledger-600 max-w-[170px] truncate"
+          >
+            <option value="all">All Mismatch Types</option>
+            <option value="FEE_OVERCHARGE">Fee Overcharge</option>
+            <option value="TAX_CALCULATION_ERROR">Tax Calc Error</option>
+            <option value="ORDER_MISSING_IN_PG">Order Missing In PG</option>
+            <option value="PG_ORPHAN_TXN">PG Orphan Txn</option>
+            <option value="CAPTURE_STATUS_MISMATCH">Capture Status Mismatch</option>
+            <option value="PAYOUT_SHORTFALL">Payout Shortfall</option>
+            <option value="BANK_MISSING">Bank Credit Missing</option>
+            <option value="UNSETTLED_PAYOUT">Unsettled Payout</option>
+          </select>
 
           {/* Severity Filter */}
           <select

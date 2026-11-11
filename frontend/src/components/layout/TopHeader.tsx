@@ -10,6 +10,7 @@ import {
   FileSpreadsheet,
   FileText,
   Activity,
+  Upload,
 } from 'lucide-react';
 import { useReconStore } from '../../store/useReconStore';
 import { apiClient } from '../../api/client';
@@ -22,6 +23,7 @@ export const TopHeader: React.FC = () => {
     setCommandPaletteOpen,
     toggleTelemetryDock,
     currentStage,
+    setActiveView,
   } = useReconStore();
 
   const [exportOpen, setExportOpen] = useState(false);
@@ -85,15 +87,25 @@ export const TopHeader: React.FC = () => {
 
       {/* Right Action Bar */}
       <div className="flex items-center gap-2">
-        {/* Seed Demo Data Button */}
+        {/* Upload CSVs Button */}
+        <button
+          onClick={() => setActiveView('upload')}
+          title="Upload custom Order, PG Settlement, or Bank Statement CSV files"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-ledger-800 hover:bg-ledger-750 text-ledger-300 hover:text-white border border-ledger-700 text-xs font-medium transition"
+        >
+          <Upload className="w-3.5 h-3.5" />
+          <span>Upload CSVs</span>
+        </button>
+
+        {/* Reset & Reseed Demo Data Button */}
         <button
           onClick={() => seedData()}
           disabled={isReconciling}
-          title="Seed realistic Indian (INR/Razorpay/HDFC) and Global (USD/Stripe/JPMC) demo datasets"
+          title="Reset database and seed realistic 60+ transaction multi-batch demo dataset"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-ledger-800 hover:bg-ledger-750 text-ledger-300 hover:text-white border border-ledger-700 text-xs font-medium transition disabled:opacity-50"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isReconciling ? 'animate-spin' : ''}`} />
-          <span>Seed Demo</span>
+          <span>Reset & Reseed Demo Data</span>
         </button>
 
         {/* Export Dropdown */}
@@ -147,17 +159,17 @@ export const TopHeader: React.FC = () => {
         <button
           onClick={() => triggerReconcile()}
           disabled={isReconciling}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold shadow-lg shadow-emerald-950/40 border border-emerald-400/30 transition disabled:opacity-50"
+          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded bg-recon-emerald hover:bg-emerald-400 text-ledger-900 text-xs font-semibold border border-emerald-500 transition disabled:opacity-50"
         >
           {isReconciling ? (
             <>
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-              <span>Matching...</span>
+              <span>Reconciling...</span>
             </>
           ) : (
             <>
               <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Run Reconcile</span>
+              <span>Run 3-Way Reconciliation</span>
             </>
           )}
         </button>

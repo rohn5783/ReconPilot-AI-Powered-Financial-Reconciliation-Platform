@@ -14,6 +14,7 @@ import (
 	"reconpilot/internal/config"
 	"reconpilot/internal/matching"
 	"reconpilot/internal/repository"
+	"reconpilot/internal/seed"
 	"reconpilot/internal/service"
 	transporthttp "reconpilot/internal/transport/http"
 	"reconpilot/internal/transport/stream"
@@ -79,6 +80,16 @@ func main() {
 	// 6. Initialize Orchestrator and Export Services
 	reconSvc := service.NewReconciliationService(repo, matchingEngine, aiClient, hub)
 	exportSvc := service.NewExportService()
+
+	// 6.1. Bootstrap database if empty or auto-seeding enabled
+	if err := seed.BootstrapIfEmpty(ctx, repo, cfg.AutoSeedOnEmpty, func(reconcileCtx context.Context) error {
+		_, err := reconSvc.RunReconciliation(reconcileCtx, nil, nil, nil)
+		return err
+	}); err != nil {
+		log.Printf("[WARN] Startup dataset bootstrap warning: %v", err)
+	} else {
+		log.Printf("[BOOTSTRAP] Startup database check & initial 3-way reconciliation complete.")
+	}
 
 	// 7. Initialize Gin HTTP Router
 	router := transporthttp.NewRouter(cfg, reconSvc, exportSvc)

@@ -19,7 +19,9 @@ func NewRouter(cfg *config.Config, reconSvc *service.ReconciliationService, expo
 
 	handler := NewHandler(reconSvc, exportSvc)
 
-	// Public Health Probes
+	// Public Health Probes & Root Status (Prevents 404 on Root Checks)
+	router.GET("/", handler.HealthCheck)
+	router.GET("/healthz", handler.HealthCheck)
 	router.GET("/health", handler.HealthCheck)
 	router.GET("/api/v1/health", handler.HealthCheck)
 

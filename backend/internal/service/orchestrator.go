@@ -13,6 +13,7 @@ import (
 	"reconpilot/internal/domain"
 	"reconpilot/internal/matching"
 	"reconpilot/internal/repository"
+	"reconpilot/internal/seed"
 	"reconpilot/internal/transport/stream"
 	"reconpilot/pkg/money"
 )
@@ -319,13 +320,8 @@ func (s *ReconciliationService) UpdateDiscrepancyStatus(ctx context.Context, id 
 
 // SeedMockData clears and re-populates the repository with the rich mock dataset and re-runs reconciliation.
 func (s *ReconciliationService) SeedMockData(ctx context.Context) error {
-	if err := s.repo.ResetAll(ctx); err != nil {
-		return fmt.Errorf("reset repository: %w", err)
-	}
-
-	// If mock repo, call SeedRealisticData
-	if mockRepo, ok := s.repo.(*repository.MockRepository); ok {
-		mockRepo.SeedRealisticData()
+	if err := seed.SeedRepository(ctx, s.repo); err != nil {
+		return fmt.Errorf("seed repository: %w", err)
 	}
 
 	_, err := s.RunReconciliation(ctx, nil, nil, nil)

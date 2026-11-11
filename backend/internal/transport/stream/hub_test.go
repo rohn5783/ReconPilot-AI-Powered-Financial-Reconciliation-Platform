@@ -40,3 +40,4 @@ func TestHubBroadcastAndSubscribe(t *testing.T) {
 		t.Errorf("Expected 1 history event, got %d", len(history))
 	}
 }
+

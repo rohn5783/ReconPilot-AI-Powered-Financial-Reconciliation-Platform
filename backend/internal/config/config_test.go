@@ -39,6 +39,10 @@ func TestConfigLoadDefaults(t *testing.T) {
 	if cfg.Auth.APIKey != "reconpilot-secret-dev-key" {
 		t.Errorf("expected default AUTH_API_KEY reconpilot-secret-dev-key, got %s", cfg.Auth.APIKey)
 	}
+
+	if !cfg.AutoSeedOnEmpty {
+		t.Errorf("expected default AutoSeedOnEmpty true")
+	}
 }
 
 func TestConfigValidationErrors(t *testing.T) {

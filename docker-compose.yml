@@ -30,6 +30,7 @@ services:
       PORT: 8080
       DATABASE_URL: postgres://reconpilot:reconpilot@postgres:5432/reconpilot?sslmode=disable
       MOCK_MODE: "false"
+      AUTO_SEED_ON_EMPTY: "true"
       AUTH_API_KEY: reconpilot-secret-dev-key
       PIPELINE_MAX_CONCURRENT_BATCHES: 10
       PIPELINE_STAGE_TIMEOUT: 5m

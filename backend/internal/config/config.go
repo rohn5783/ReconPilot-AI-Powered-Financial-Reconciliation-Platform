@@ -12,13 +12,14 @@ import (
 
 // Config encapsulates strictly typed, validated environment configuration for ReconPilot.
 type Config struct {
-	Pipeline PipelineConfig `mapstructure:",squash"`
-	Security SecurityConfig `mapstructure:",squash"`
-	AI       AIConfig       `mapstructure:",squash"`
-	Auth     AuthConfig     `mapstructure:",squash"`
-	MockMode bool           `mapstructure:"MOCK_MODE"`
-	Database DatabaseConfig `mapstructure:",squash"`
-	Server   ServerConfig   `mapstructure:",squash"`
+	Pipeline        PipelineConfig `mapstructure:",squash"`
+	Security        SecurityConfig `mapstructure:",squash"`
+	AI              AIConfig       `mapstructure:",squash"`
+	Auth            AuthConfig     `mapstructure:",squash"`
+	MockMode        bool           `mapstructure:"MOCK_MODE"`
+	AutoSeedOnEmpty bool           `mapstructure:"AUTO_SEED_ON_EMPTY"`
+	Database        DatabaseConfig `mapstructure:",squash"`
+	Server          ServerConfig   `mapstructure:",squash"`
 }
 
 // PipelineConfig controls concurrency, timeouts, and bounded streaming buffers.
@@ -70,6 +71,7 @@ func Load() (*Config, error) {
 
 	v.SetDefault("AUTH_API_KEY", "reconpilot-secret-dev-key")
 	v.SetDefault("MOCK_MODE", false)
+	v.SetDefault("AUTO_SEED_ON_EMPTY", true)
 
 	v.SetDefault("DATABASE_URL", "postgres://reconpilot:reconpilot@localhost:5432/reconpilot?sslmode=disable")
 	v.SetDefault("PORT", 8080)
@@ -97,8 +99,14 @@ func Load() (*Config, error) {
 	if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
 		cfg.AI.GeminiAPIKey = apiKey
 	}
+	if geminiModel := os.Getenv("GEMINI_MODEL"); geminiModel != "" {
+		cfg.AI.GeminiModel = geminiModel
+	}
 	if authKey := os.Getenv("AUTH_API_KEY"); authKey != "" {
 		cfg.Auth.APIKey = authKey
+	}
+	if autoSeed := os.Getenv("AUTO_SEED_ON_EMPTY"); autoSeed != "" {
+		cfg.AutoSeedOnEmpty = (autoSeed == "true" || autoSeed == "1")
 	}
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
 		cfg.Database.URL = dbURL
