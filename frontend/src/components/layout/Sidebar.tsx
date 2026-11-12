@@ -124,7 +124,7 @@ export const Sidebar: React.FC = () => {
         <div className="flex items-center justify-between px-2 py-1.5 rounded bg-ledger-800 border border-ledger-700">
           <div className="flex items-center gap-1.5 text-ledger-300">
             <Cpu className="w-3.5 h-3.5 text-recon-indigo" />
-            <span className="text-[10px]">Gemini 2.5 Flash</span>
+            <span className="text-[10px]">Gemini 3.8 Flash</span>
           </div>
           <ShieldCheck className="w-3.5 h-3.5 text-recon-emerald" />
         </div>

@@ -173,7 +173,7 @@ export const EvidenceDrawer: React.FC = () => {
               <div className="flex items-center gap-2 text-recon-indigo font-semibold">
                 <Sparkles className="w-4 h-4" />
                 <span className="text-xs uppercase tracking-wide">
-                  Gemini 2.5 Flash Forensic Diagnosis
+                  Gemini 3.8 Flash Forensic Diagnosis
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -245,7 +245,7 @@ export const EvidenceDrawer: React.FC = () => {
               </>
             ) : (
               <div className="py-6 text-center text-ledger-400 font-mono text-xs">
-                Click "Re-Diagnose" to generate structured AI analysis with Gemini 2.5 Flash.
+                Click "Re-Diagnose" to generate structured AI analysis with Gemini 3.8 Flash.
               </div>
             )}
           </div>

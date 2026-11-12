@@ -40,7 +40,7 @@ export const DiscrepanciesView: React.FC = () => {
             <h2 className="text-sm font-semibold text-white">Discrepancy Audit & AI Dispute Dossiers</h2>
           </div>
           <p className="text-xs text-ledger-400 mt-0.5">
-            Institutional ledger divergence records analyzed by Google Gemini 2.5 Flash with 1-click dispute ticket generator.
+            Institutional ledger divergence records analyzed by Google Gemini 3.8 Flash with 1-click dispute ticket generator.
           </p>
         </div>
 
