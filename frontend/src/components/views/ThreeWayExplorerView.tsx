@@ -84,7 +84,7 @@ export const ThreeWayExplorerView: React.FC = () => {
 
         <div className="text-xs font-mono text-ledger-400 flex items-center gap-2">
           <Filter className="w-3.5 h-3.5" />
-          <span>Showing {traces.length} of {tracesTotal} traces</span>
+          <span>Showing {(traces || []).length} of {tracesTotal || 0} traces</span>
         </div>
       </div>
 
@@ -109,7 +109,7 @@ export const ThreeWayExplorerView: React.FC = () => {
           </thead>
 
           <tbody className="divide-y divide-ledger-700/60 font-mono">
-            {traces.length === 0 ? (
+            {(traces || []).length === 0 ? (
               <tr>
                 <td colSpan={4} className="py-16 text-center text-ledger-400">
                   <div className="max-w-sm mx-auto space-y-1.5 font-sans">
@@ -121,7 +121,7 @@ export const ThreeWayExplorerView: React.FC = () => {
                 </td>
               </tr>
             ) : (
-              traces.map((trace, idx) => {
+              (traces || []).map((trace, idx) => {
                 const hasDiscrepancy = !trace.is_reconciled && trace.discrepancy;
                 return (
                   <tr

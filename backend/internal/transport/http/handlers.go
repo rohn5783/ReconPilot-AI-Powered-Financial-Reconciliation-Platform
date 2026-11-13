@@ -66,6 +66,9 @@ func (h *Handler) GetTraces(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch traces", "details": err.Error()})
 		return
 	}
+	if traces == nil {
+		traces = []domain.ThreeWayTraceItem{}
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"data":   traces,
@@ -81,6 +84,9 @@ func (h *Handler) GetPayoutBatches(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch payout batches", "details": err.Error()})
 		return
+	}
+	if batches == nil {
+		batches = []domain.PayoutBatchGroup{}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"data":  batches,
@@ -126,6 +132,9 @@ func (h *Handler) GetDiscrepancies(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch discrepancies", "details": err.Error()})
 		return
+	}
+	if discrepancies == nil {
+		discrepancies = []domain.Discrepancy{}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

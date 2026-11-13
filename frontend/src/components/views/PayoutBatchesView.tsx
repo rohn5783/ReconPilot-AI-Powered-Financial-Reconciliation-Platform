@@ -33,18 +33,18 @@ export const PayoutBatchesView: React.FC = () => {
           </p>
         </div>
         <div className="text-xs font-mono text-ledger-300 bg-ledger-900 px-3 py-1.5 rounded border border-ledger-700">
-          Total Batches: <span className="text-white font-bold">{payoutBatches.length}</span>
+          Total Batches: <span className="text-white font-bold">{(payoutBatches || []).length}</span>
         </div>
       </div>
 
       {/* Grid list of payout batches */}
       <div className="flex-1 overflow-auto p-4 space-y-3">
-        {payoutBatches.length === 0 ? (
+        {(payoutBatches || []).length === 0 ? (
           <div className="py-16 text-center text-ledger-400 font-mono text-xs">
             No payout batches detected. Run reconciliation or seed demo data.
           </div>
         ) : (
-          payoutBatches.map((batch) => {
+          (payoutBatches || []).map((batch) => {
             const isMatched = batch.status === 'MATCHED';
             const isMissing = batch.status === 'BANK_MISSING';
             const isShortfall = batch.status === 'SHORTFALL';

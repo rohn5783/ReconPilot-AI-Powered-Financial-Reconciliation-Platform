@@ -120,12 +120,12 @@ export const DiscrepanciesView: React.FC = () => {
 
       {/* Discrepancy Card List */}
       <div className="flex-1 overflow-auto p-4 space-y-3">
-        {discrepancies.length === 0 ? (
+        {(discrepancies || []).length === 0 ? (
           <div className="py-20 text-center text-ledger-400 font-mono text-xs">
             No active discrepancies found. Run reconciliation engine to detect ledger variances.
           </div>
         ) : (
-          discrepancies.map((d) => {
+          (discrepancies || []).map((d) => {
             const isCritical = d.severity === 'CRITICAL';
             const isHigh = d.severity === 'HIGH';
 

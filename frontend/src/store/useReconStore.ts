@@ -107,7 +107,7 @@ export const useReconStore = create<ReconState>((set, get) => ({
     try {
       const statusParam = statusFilter === 'all' ? '' : statusFilter;
       const res = await apiClient.getTraces(searchQuery, statusParam, 100, 0);
-      set({ traces: res.data, tracesTotal: res.total });
+      set({ traces: res?.data || [], tracesTotal: res?.total || 0 });
     } catch (err: any) {
       console.error('Failed to fetch traces:', err);
       set({ lastError: err?.message || 'Failed to fetch traces' });
@@ -117,7 +117,7 @@ export const useReconStore = create<ReconState>((set, get) => ({
   fetchPayoutBatches: async () => {
     try {
       const res = await apiClient.getPayoutBatches();
-      set({ payoutBatches: res.data });
+      set({ payoutBatches: res?.data || [] });
     } catch (err: any) {
       console.error('Failed to fetch payout batches:', err);
     }
@@ -132,7 +132,7 @@ export const useReconStore = create<ReconState>((set, get) => ({
       if (discrepancyStatusFilter !== 'all') filters.status = discrepancyStatusFilter;
       if (discrepancyTypeFilter !== 'all') filters.type = discrepancyTypeFilter;
       const res = await apiClient.getDiscrepancies(filters);
-      set({ discrepancies: res.data });
+      set({ discrepancies: res?.data || [] });
     } catch (err: any) {
       console.error('Failed to fetch discrepancies:', err);
     }
@@ -228,7 +228,7 @@ export const useReconStore = create<ReconState>((set, get) => ({
 
   addTelemetryEvent: (evt: PipelineTelemetryEvent) => {
     set((state) => {
-      const logs = [...state.telemetryLogs, evt];
+      const logs = [...(state.telemetryLogs || []), evt];
       if (logs.length > 200) logs.shift();
       return {
         telemetryLogs: logs,

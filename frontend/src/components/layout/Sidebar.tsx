@@ -37,14 +37,14 @@ export const Sidebar: React.FC = () => {
       id: 'batches',
       label: 'Payout Batches (L2)',
       icon: <Layers className="w-4 h-4" />,
-      badge: payoutBatches.length,
+      badge: (payoutBatches || []).length,
       badgeColor: 'bg-ledger-800 text-recon-cyan',
     },
     {
       id: 'discrepancies',
       label: 'Discrepancy Audits',
       icon: <AlertTriangle className="w-4 h-4" />,
-      badge: discrepancies.length,
+      badge: (discrepancies || []).length,
       badgeColor: 'bg-recon-crimson/20 text-recon-crimson border border-recon-crimson/30',
     },
     {

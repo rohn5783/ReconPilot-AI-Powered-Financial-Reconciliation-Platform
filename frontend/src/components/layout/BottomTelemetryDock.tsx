@@ -74,12 +74,12 @@ export const BottomTelemetryDock: React.FC = () => {
             <span className="uppercase text-[10px] tracking-wider">Live Pipeline Telemetry & Event Log</span>
           </div>
 
-          {telemetryLogs.length === 0 ? (
+          {(telemetryLogs || []).length === 0 ? (
             <div className="text-ledger-400 py-4 text-center">
               No recent stream telemetry events. Run reconciliation to stream logs in real-time.
             </div>
           ) : (
-            telemetryLogs.map((evt, idx) => (
+            (telemetryLogs || []).map((evt, idx) => (
               <div key={idx} className="flex items-start gap-2.5 leading-relaxed">
                 <span className="text-ledger-400 shrink-0">
                   {new Date(evt.timestamp).toLocaleTimeString()}
