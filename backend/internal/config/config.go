@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -130,6 +131,11 @@ func Load() (*Config, error) {
 	}
 	if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
 		cfg.Database.URL = dbURL
+	}
+	if portStr := os.Getenv("PORT"); portStr != "" {
+		if p, err := strconv.Atoi(portStr); err == nil && p > 0 {
+			cfg.Server.Port = p
+		}
 	}
 
 	if err := cfg.Validate(); err != nil {

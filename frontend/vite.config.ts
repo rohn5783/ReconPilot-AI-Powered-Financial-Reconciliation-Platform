@@ -14,8 +14,9 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: process.env.VITE_BACKEND_TARGET || 'https://reconpilot-backend-latest.onrender.com',
         changeOrigin: true,
+        secure: true,
       },
     },
   },

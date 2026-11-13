@@ -8,10 +8,15 @@ import {
   PipelineTelemetryEvent,
 } from '../types';
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api/v1';
+export const LIVE_BACKEND_URL = 'https://reconpilot-backend-latest.onrender.com';
+const API_BASE = import.meta.env.VITE_API_URL || `${LIVE_BACKEND_URL}/api/v1`;
 
 export function getApiKey(): string {
-  return import.meta.env.VITE_AUTH_API_KEY || localStorage.getItem('RECONPILOT_API_KEY') || '';
+  return (
+    import.meta.env.VITE_AUTH_API_KEY ||
+    localStorage.getItem('RECONPILOT_API_KEY') ||
+    'c6295744f18aba25b56fbe51834593ce23d29b6e89abd354ec5ce5724fec13dd'
+  );
 }
 
 export function setApiKey(key: string): void {
