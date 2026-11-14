@@ -23,53 +23,61 @@ func NewRouter(cfg *config.Config, reconSvc *service.ReconciliationService, expo
 	router.GET("/", handler.HealthCheck)
 	router.GET("/healthz", handler.HealthCheck)
 	router.GET("/health", handler.HealthCheck)
+	router.GET("/api/health", handler.HealthCheck)
 	router.GET("/api/v1/health", handler.HealthCheck)
 
-	// Public Authentication Routes
-	auth := router.Group("/api/v1/auth")
-	{
-		auth.POST("/register", handler.Register)
-		auth.POST("/login", handler.Login)
+	// Public Authentication Routes (support /api/v1/auth, /api/auth, and /auth with optional trailing slash)
+	for _, prefix := range []string{"/api/v1/auth", "/api/auth", "/auth"} {
+		auth := router.Group(prefix)
+		{
+			auth.POST("/register", handler.Register)
+			auth.POST("/register/", handler.Register)
+			auth.POST("/login", handler.Login)
+			auth.POST("/login/", handler.Login)
+		}
 	}
 
-	// Protected API Routes
-	v1 := router.Group("/api/v1")
-	v1.Use(AuthMiddleware(cfg.Auth.APIKey, authSvc))
-	{
-		// Operator Profile
-		v1.GET("/auth/me", handler.GetCurrentUser)
+	// Register core API routes under both /api/v1 and /api for maximum reverse proxy compatibility
+	for _, apiPrefix := range []string{"/api/v1", "/api"} {
+		apiGroup := router.Group(apiPrefix)
+		apiGroup.Use(AuthMiddleware(cfg.Auth.APIKey, authSvc))
+		{
+			// Operator Profile
+			apiGroup.GET("/auth/me", handler.GetCurrentUser)
+			apiGroup.GET("/auth/me/", handler.GetCurrentUser)
 
-		// Executive Workstation Dashboard
-		v1.GET("/summary", handler.GetSummary)
-		v1.GET("/traces", handler.GetTraces)
-		v1.GET("/payout-batches", handler.GetPayoutBatches)
+			// Executive Workstation Dashboard
+			apiGroup.GET("/summary", handler.GetSummary)
+			apiGroup.GET("/traces", handler.GetTraces)
+			apiGroup.GET("/payout-batches", handler.GetPayoutBatches)
 
-		// Discrepancy Auditing & Gemini AI Analysis
-		v1.GET("/discrepancies", handler.GetDiscrepancies)
-		v1.GET("/discrepancies/:id", handler.GetDiscrepancyByID)
-		v1.POST("/discrepancies/:id/diagnose", handler.DiagnoseDiscrepancy)
-		v1.PATCH("/discrepancies/:id/status", handler.UpdateDiscrepancyStatus)
+			// Discrepancy Auditing & Gemini AI Analysis
+			apiGroup.GET("/discrepancies", handler.GetDiscrepancies)
+			apiGroup.GET("/discrepancies/:id", handler.GetDiscrepancyByID)
+			apiGroup.POST("/discrepancies/:id/diagnose", handler.DiagnoseDiscrepancy)
+			apiGroup.PATCH("/discrepancies/:id/status", handler.UpdateDiscrepancyStatus)
 
-		// Pipeline Execution & Realtime Telemetry Stream
-		v1.POST("/reconcile", handler.TriggerReconciliation)
-		v1.GET("/reconcile/stream", handler.StreamTelemetry)
+			// Pipeline Execution & Realtime Telemetry Stream
+			apiGroup.POST("/reconcile", handler.TriggerReconciliation)
+			apiGroup.GET("/reconcile/stream", handler.StreamTelemetry)
 
-		// Reset, Seed & Exports
-		v1.POST("/reset", handler.ResetData)
-		v1.POST("/seed", handler.SeedData)
-		v1.GET("/export", handler.ExportReport)
+			// Reset, Seed & Exports
+			apiGroup.POST("/reset", handler.ResetData)
+			apiGroup.POST("/seed", handler.SeedData)
+			apiGroup.GET("/export", handler.ExportReport)
 
-		// Upload History & Ingestion Archive
-		v1.GET("/uploads", handler.GetUploadHistory)
-		v1.GET("/uploads/:id", handler.GetUploadRecordByID)
-		v1.GET("/uploads/:id/download", handler.DownloadUploadedFile)
+			// Upload History & Ingestion Archive
+			apiGroup.GET("/uploads", handler.GetUploadHistory)
+			apiGroup.GET("/uploads/:id", handler.GetUploadRecordByID)
+			apiGroup.GET("/uploads/:id/download", handler.DownloadUploadedFile)
 
-		// Contract Rules & Dynamic Matching Configuration (MDR, GST, Fee Tolerance, Rounding)
-		v1.GET("/contract-rules", handler.GetContractRules)
-		v1.POST("/contract-rules", handler.CreateContractRule)
-		v1.PUT("/contract-rules/:id", handler.UpdateContractRule)
-		v1.POST("/contract-rules/:id/activate", handler.ActivateContractRule)
-		v1.DELETE("/contract-rules/:id", handler.DeleteContractRule)
+			// Contract Rules & Dynamic Matching Configuration (MDR, GST, Fee Tolerance, Rounding)
+			apiGroup.GET("/contract-rules", handler.GetContractRules)
+			apiGroup.POST("/contract-rules", handler.CreateContractRule)
+			apiGroup.PUT("/contract-rules/:id", handler.UpdateContractRule)
+			apiGroup.POST("/contract-rules/:id/activate", handler.ActivateContractRule)
+			apiGroup.DELETE("/contract-rules/:id", handler.DeleteContractRule)
+		}
 	}
 
 	return router

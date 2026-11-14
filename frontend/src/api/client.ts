@@ -15,7 +15,41 @@ import {
 } from '../types';
 
 export const LIVE_BACKEND_URL = 'https://reconpilot-backend-latest.onrender.com';
-const API_BASE = import.meta.env.VITE_API_URL || `${LIVE_BACKEND_URL}/api/v1`;
+
+export function getApiBase(): string {
+  if (typeof window !== 'undefined') {
+    const custom = localStorage.getItem('RECONPILOT_BACKEND_URL');
+    if (custom && custom.trim()) {
+      return custom.trim().replace(/\/+$/, '');
+    }
+  }
+
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl && envUrl.trim()) {
+    // When running inside local Docker (served by Nginx at localhost:3000),
+    // always use relative '/api/v1' so Nginx proxies directly to the backend container
+    if (
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') &&
+      envUrl.startsWith('http')
+    ) {
+      return '/api/v1';
+    }
+    return envUrl.trim().replace(/\/+$/, '');
+  }
+
+  if (typeof window !== 'undefined') {
+    return '/api/v1';
+  }
+
+  return `${LIVE_BACKEND_URL}/api/v1`;
+}
+
+export const API_BASE = {
+  toString() {
+    return getApiBase();
+  },
+};
 
 export function getApiKey(): string {
   return (
