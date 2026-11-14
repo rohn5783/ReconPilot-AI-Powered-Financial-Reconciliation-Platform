@@ -49,9 +49,10 @@ type AIConfig struct {
 	GeminiModel  string `mapstructure:"GEMINI_MODEL"`
 }
 
-// AuthConfig defines API authentication keys.
+// AuthConfig defines API authentication keys and JWT signing secrets.
 type AuthConfig struct {
-	APIKey string `mapstructure:"AUTH_API_KEY"`
+	APIKey    string `mapstructure:"AUTH_API_KEY"`
+	JWTSecret string `mapstructure:"JWT_SECRET"`
 }
 
 // DatabaseConfig holds PostgreSQL relational connection settings.
@@ -79,6 +80,7 @@ func Load() (*Config, error) {
 	v.SetDefault("GEMINI_MODEL", "gemini-2.5-flash")
 
 	v.SetDefault("AUTH_API_KEY", "")
+	v.SetDefault("JWT_SECRET", "reconpilot-jwt-insecure-dev-secret-change-in-prod")
 	v.SetDefault("MOCK_MODE", false)
 	v.SetDefault("AUTO_SEED_ON_EMPTY", false)
 	v.SetDefault("CONTRACT_FEE_RATE", "0.0200")
@@ -116,6 +118,12 @@ func Load() (*Config, error) {
 	}
 	if authKey := os.Getenv("AUTH_API_KEY"); authKey != "" {
 		cfg.Auth.APIKey = authKey
+	}
+	if jwtSecret := os.Getenv("JWT_SECRET"); jwtSecret != "" {
+		cfg.Auth.JWTSecret = jwtSecret
+	}
+	if cfg.Auth.JWTSecret == "" {
+		cfg.Auth.JWTSecret = "reconpilot-jwt-insecure-dev-secret-change-in-prod"
 	}
 	if autoSeed := os.Getenv("AUTO_SEED_ON_EMPTY"); autoSeed != "" {
 		cfg.AutoSeedOnEmpty = (autoSeed == "true" || autoSeed == "1")

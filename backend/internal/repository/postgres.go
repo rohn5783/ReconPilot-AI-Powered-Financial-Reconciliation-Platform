@@ -21,6 +21,7 @@ type PostgresRepository struct {
 	pg            *PostgresPGRepo
 	bank          *PostgresBankRepo
 	discrepancies *PostgresDiscrepancyRepo
+	users         *PostgresUserRepo
 }
 
 // NewPostgresRepository initializes a connection pool and returns a PostgresRepository.
@@ -51,6 +52,7 @@ func NewPostgresRepository(ctx context.Context, databaseURL string) (*PostgresRe
 		pg:            &PostgresPGRepo{pool: pool},
 		bank:          &PostgresBankRepo{pool: pool},
 		discrepancies: &PostgresDiscrepancyRepo{pool: pool},
+		users:         &PostgresUserRepo{pool: pool},
 	}
 
 	if err := repo.AutoMigrate(ctx); err != nil {
@@ -142,12 +144,27 @@ CREATE INDEX IF NOT EXISTS idx_discrepancies_level_type ON discrepancies(discrep
 CREATE INDEX IF NOT EXISTS idx_discrepancies_status ON discrepancies(status);
 CREATE INDEX IF NOT EXISTS idx_discrepancies_severity ON discrepancies(severity);
 CREATE INDEX IF NOT EXISTS idx_discrepancies_detected_at ON discrepancies(detected_at DESC);
+
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    full_name VARCHAR(255) NOT NULL,
+    company_name VARCHAR(255) NOT NULL DEFAULT '',
+    role VARCHAR(50) NOT NULL DEFAULT 'FINANCE_ANALYST',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 `
 
 func (r *PostgresRepository) Orders() OrderRepository             { return r.orders }
 func (r *PostgresRepository) PG() PGRepository                     { return r.pg }
 func (r *PostgresRepository) Bank() BankRepository                 { return r.bank }
 func (r *PostgresRepository) Discrepancies() DiscrepancyRepository { return r.discrepancies }
+func (r *PostgresRepository) Users() UserRepository                 { return r.users }
 
 func (r *PostgresRepository) ResetAll(ctx context.Context) error {
 	queries := []string{
@@ -825,4 +842,85 @@ func (r *PostgresDiscrepancyRepo) Count(ctx context.Context) (int64, error) {
 func (r *PostgresDiscrepancyRepo) Clear(ctx context.Context) error {
 	_, err := r.pool.Exec(ctx, "TRUNCATE TABLE discrepancies CASCADE;")
 	return err
+}
+
+// PostgresUserRepo provides PostgreSQL persistence for platform users.
+type PostgresUserRepo struct {
+	pool *pgxpool.Pool
+}
+
+func (r *PostgresUserRepo) Create(ctx context.Context, u *domain.User) error {
+	if u.ID == uuid.Nil {
+		u.ID = uuid.New()
+	}
+	now := time.Now().UTC()
+	if u.CreatedAt.IsZero() {
+		u.CreatedAt = now
+	}
+	if u.UpdatedAt.IsZero() {
+		u.UpdatedAt = now
+	}
+	if u.Role == "" {
+		u.Role = "FINANCE_ANALYST"
+	}
+
+	query := `
+		INSERT INTO users (id, email, password_hash, full_name, company_name, role, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		ON CONFLICT (email) DO UPDATE SET
+			password_hash = EXCLUDED.password_hash,
+			full_name = EXCLUDED.full_name,
+			company_name = EXCLUDED.company_name,
+			role = EXCLUDED.role,
+			updated_at = EXCLUDED.updated_at;
+	`
+	_, err := r.pool.Exec(ctx, query, u.ID, u.Email, u.PasswordHash, u.FullName, u.CompanyName, u.Role, u.CreatedAt, u.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("insert user: %w", err)
+	}
+	return nil
+}
+
+func (r *PostgresUserRepo) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
+	query := `
+		SELECT id, email, password_hash, full_name, company_name, role, created_at, updated_at
+		FROM users
+		WHERE LOWER(email) = LOWER($1);
+	`
+	var u domain.User
+	err := r.pool.QueryRow(ctx, query, email).Scan(
+		&u.ID, &u.Email, &u.PasswordHash, &u.FullName, &u.CompanyName, &u.Role, &u.CreatedAt, &u.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("find user by email: %w", err)
+	}
+	return &u, nil
+}
+
+func (r *PostgresUserRepo) FindByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+	query := `
+		SELECT id, email, password_hash, full_name, company_name, role, created_at, updated_at
+		FROM users
+		WHERE id = $1;
+	`
+	var u domain.User
+	err := r.pool.QueryRow(ctx, query, id).Scan(
+		&u.ID, &u.Email, &u.PasswordHash, &u.FullName, &u.CompanyName, &u.Role, &u.CreatedAt, &u.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("find user by id: %w", err)
+	}
+	return &u, nil
+}
+
+func (r *PostgresUserRepo) Count(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.pool.QueryRow(ctx, "SELECT COUNT(*) FROM users;").Scan(&count)
+	return count, err
 }

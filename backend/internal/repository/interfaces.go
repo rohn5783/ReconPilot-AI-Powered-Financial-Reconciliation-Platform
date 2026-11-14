@@ -62,12 +62,21 @@ type DiscrepancyRepository interface {
 	Clear(ctx context.Context) error
 }
 
+// UserRepository handles persistence and queries for authenticated platform operators.
+type UserRepository interface {
+	Create(ctx context.Context, user *domain.User) error
+	FindByEmail(ctx context.Context, email string) (*domain.User, error)
+	FindByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
+	Count(ctx context.Context) (int64, error)
+}
+
 // ReconciliationRepository aggregates all storage entities into a unified interface.
 type ReconciliationRepository interface {
 	Orders() OrderRepository
 	PG() PGRepository
 	Bank() BankRepository
 	Discrepancies() DiscrepancyRepository
+	Users() UserRepository
 	ResetAll(ctx context.Context) error
 	Close() error
 }

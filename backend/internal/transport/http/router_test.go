@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"reconpilot/internal/ai"
 	"reconpilot/internal/config"
+	"reconpilot/internal/domain"
 	"reconpilot/internal/matching"
 	"reconpilot/internal/repository"
 	"reconpilot/internal/service"
@@ -35,8 +37,9 @@ func setupTestRouter(t *testing.T) (*http.Handler, *config.Config) {
 	hub := stream.NewHub()
 	reconSvc := service.NewReconciliationService(repo, engine, aiClient, hub)
 	exportSvc := service.NewExportService()
+	authSvc := service.NewAuthService(repo.Users(), "test-jwt-secret")
 
-	router := NewRouter(cfg, reconSvc, exportSvc)
+	router := NewRouter(cfg, reconSvc, exportSvc, authSvc)
 	var handler http.Handler = router
 	return &handler, cfg
 }
@@ -124,5 +127,82 @@ func TestGetTracesAndDiscrepanciesAPI(t *testing.T) {
 	}
 	if !strings.Contains(wExport.Header().Get("Content-Type"), "text/csv") {
 		t.Errorf("Expected text/csv content type, got %s", wExport.Header().Get("Content-Type"))
+	}
+}
+
+func TestAuthRegistrationAndLogin(t *testing.T) {
+	handler, _ := setupTestRouter(t)
+
+	// 1. Register a new user
+	regPayload := `{"email":"analyst@reconpilot.io","password":"secretPassword123","full_name":"Jane Doe","company_name":"Acme Fintech","role":"SENIOR_ANALYST"}`
+	reqReg, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(regPayload))
+	reqReg.Header.Set("Content-Type", "application/json")
+	wReg := httptest.NewRecorder()
+	(*handler).ServeHTTP(wReg, reqReg)
+
+	if wReg.Code != http.StatusCreated {
+		t.Fatalf("Expected 201 Created on register, got %d: %s", wReg.Code, wReg.Body.String())
+	}
+
+	var regResp domain.AuthResponse
+	if err := json.Unmarshal(wReg.Body.Bytes(), &regResp); err != nil {
+		t.Fatalf("Failed to parse register response: %v", err)
+	}
+	if regResp.Token == "" {
+		t.Errorf("Expected non-empty token on registration")
+	}
+	if regResp.User.Email != "analyst@reconpilot.io" {
+		t.Errorf("Expected user email 'analyst@reconpilot.io', got %s", regResp.User.Email)
+	}
+
+	// 2. Login with credentials
+	loginPayload := `{"email":"analyst@reconpilot.io","password":"secretPassword123"}`
+	reqLogin, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(loginPayload))
+	reqLogin.Header.Set("Content-Type", "application/json")
+	wLogin := httptest.NewRecorder()
+	(*handler).ServeHTTP(wLogin, reqLogin)
+
+	if wLogin.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK on login, got %d: %s", wLogin.Code, wLogin.Body.String())
+	}
+
+	var loginResp domain.AuthResponse
+	if err := json.Unmarshal(wLogin.Body.Bytes(), &loginResp); err != nil {
+		t.Fatalf("Failed to parse login response: %v", err)
+	}
+	if loginResp.Token == "" {
+		t.Errorf("Expected non-empty token on login")
+	}
+
+	// 3. Access protected /api/v1/auth/me using Bearer token
+	reqMe, _ := http.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+	reqMe.Header.Set("Authorization", "Bearer "+loginResp.Token)
+	wMe := httptest.NewRecorder()
+	(*handler).ServeHTTP(wMe, reqMe)
+
+	if wMe.Code != http.StatusOK {
+		t.Fatalf("Expected 200 OK for /api/v1/auth/me with Bearer token, got %d: %s", wMe.Code, wMe.Body.String())
+	}
+
+	var userMe domain.UserPublic
+	if err := json.Unmarshal(wMe.Body.Bytes(), &userMe); err != nil {
+		t.Fatalf("Failed to parse /auth/me response: %v", err)
+	}
+	if userMe.Email != "analyst@reconpilot.io" {
+		t.Errorf("Expected email 'analyst@reconpilot.io', got %s", userMe.Email)
+	}
+	if userMe.FullName != "Jane Doe" {
+		t.Errorf("Expected full name 'Jane Doe', got %s", userMe.FullName)
+	}
+
+	// 4. Invalid login attempt
+	badLoginPayload := `{"email":"analyst@reconpilot.io","password":"wrongPassword"}`
+	reqBad, _ := http.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(badLoginPayload))
+	reqBad.Header.Set("Content-Type", "application/json")
+	wBad := httptest.NewRecorder()
+	(*handler).ServeHTTP(wBad, reqBad)
+
+	if wBad.Code != http.StatusUnauthorized {
+		t.Errorf("Expected 401 Unauthorized for bad password, got %d", wBad.Code)
 	}
 }

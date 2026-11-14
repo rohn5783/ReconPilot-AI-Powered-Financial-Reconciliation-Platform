@@ -77,9 +77,10 @@ func main() {
 	// 5. Initialize SSE Telemetry Broadcaster Hub
 	hub := stream.NewHub()
 
-	// 6. Initialize Orchestrator and Export Services
+	// 6. Initialize Orchestrator, Export and Auth Services
 	reconSvc := service.NewReconciliationService(repo, matchingEngine, aiClient, hub)
 	exportSvc := service.NewExportService()
+	authSvc := service.NewAuthService(repo.Users(), cfg.Auth.JWTSecret)
 
 	// 6.1. Prime reconciliation from existing database data (zero hardcoded auto-injection)
 	if cfg.AutoSeedOnEmpty {
@@ -94,7 +95,7 @@ func main() {
 	}
 
 	// 7. Initialize Gin HTTP Router
-	router := transporthttp.NewRouter(cfg, reconSvc, exportSvc)
+	router := transporthttp.NewRouter(cfg, reconSvc, exportSvc, authSvc)
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),

@@ -2,10 +2,12 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -21,14 +23,106 @@ import (
 type Handler struct {
 	reconSvc  *service.ReconciliationService
 	exportSvc *service.ExportService
+	authSvc   *service.AuthService
 }
 
 // NewHandler constructs Handler.
-func NewHandler(reconSvc *service.ReconciliationService, exportSvc *service.ExportService) *Handler {
+func NewHandler(reconSvc *service.ReconciliationService, exportSvc *service.ExportService, authSvc *service.AuthService) *Handler {
 	return &Handler{
 		reconSvc:  reconSvc,
 		exportSvc: exportSvc,
+		authSvc:   authSvc,
 	}
+}
+
+// Register handles operator account creation.
+func (h *Handler) Register(c *gin.Context) {
+	if h.authSvc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "authentication service is not initialized"})
+		return
+	}
+
+	var req domain.RegisterRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid registration request", "details": err.Error()})
+		return
+	}
+
+	resp, err := h.authSvc.Register(c.Request.Context(), req)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, service.ErrUserAlreadyExists) {
+			status = http.StatusConflict
+		} else if strings.Contains(err.Error(), "required") || strings.Contains(err.Error(), "characters") {
+			status = http.StatusBadRequest
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, resp)
+}
+
+// Login handles operator authentication and token generation.
+func (h *Handler) Login(c *gin.Context) {
+	if h.authSvc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "authentication service is not initialized"})
+		return
+	}
+
+	var req domain.LoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid login request", "details": err.Error()})
+		return
+	}
+
+	resp, err := h.authSvc.Login(c.Request.Context(), req)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, service.ErrInvalidCredentials) {
+			status = http.StatusUnauthorized
+		}
+		c.JSON(status, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+// GetCurrentUser returns the profile of the authenticated operator.
+func (h *Handler) GetCurrentUser(c *gin.Context) {
+	val, exists := c.Get("user_id")
+	if !exists {
+		// Fallback for API key clients or system access
+		c.JSON(http.StatusOK, domain.UserPublic{
+			ID:          uuid.Nil,
+			Email:       "operator@reconpilot.io",
+			FullName:    "ReconPilot Platform Operator",
+			CompanyName: "ReconPilot Production",
+			Role:        "LEAD_FINANCE_ARCHITECT",
+			CreatedAt:   time.Now().UTC(),
+		})
+		return
+	}
+
+	uid, ok := val.(uuid.UUID)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid user identifier in context"})
+		return
+	}
+
+	if h.authSvc == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "authentication service is not initialized"})
+		return
+	}
+
+	user, err := h.authSvc.GetCurrentUser(c.Request.Context(), uid)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "user not found", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, user)
 }
 
 // HealthCheck responds with server status.

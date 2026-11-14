@@ -6,8 +6,11 @@ import {
   Discrepancy,
   DiscrepancyStatus,
   PipelineTelemetryEvent,
+  UserProfile,
+  RegisterPayload,
+  LoginPayload,
 } from '../types';
-import { apiClient, getApiKey, setApiKey } from '../api/client';
+import { apiClient, getApiKey, setApiKey, getAuthToken } from '../api/client';
 
 export type WorkstationView = 'explorer' | 'batches' | 'discrepancies' | 'upload';
 
@@ -19,6 +22,14 @@ interface ReconState {
   discrepancies: Discrepancy[];
   selectedDiscrepancy: Discrepancy | null;
   activeView: WorkstationView;
+
+  // Authentication State
+  currentUser: UserProfile | null;
+  authToken: string | null;
+  isAuthModalOpen: boolean;
+  authModalTab: 'login' | 'register';
+  authError: string | null;
+  isAuthenticating: boolean;
 
   // Search & Filters
   searchQuery: string;
@@ -64,6 +75,14 @@ interface ReconState {
   toggleTelemetryDock: () => void;
   setLastError: (err: string | null) => void;
   saveApiKey: (key: string) => void;
+
+  // Authentication Actions
+  openAuthModal: (tab?: 'login' | 'register') => void;
+  closeAuthModal: () => void;
+  login: (payload: LoginPayload) => Promise<boolean>;
+  register: (payload: RegisterPayload) => Promise<boolean>;
+  logout: () => void;
+  checkAuth: () => Promise<void>;
 }
 
 export const useReconStore = create<ReconState>((set, get) => ({
@@ -74,6 +93,14 @@ export const useReconStore = create<ReconState>((set, get) => ({
   discrepancies: [],
   selectedDiscrepancy: null,
   activeView: 'explorer',
+
+  // Authentication State
+  currentUser: null,
+  authToken: getAuthToken(),
+  isAuthModalOpen: false,
+  authModalTab: 'login',
+  authError: null,
+  isAuthenticating: false,
 
   searchQuery: '',
   statusFilter: 'all',
@@ -328,6 +355,74 @@ export const useReconStore = create<ReconState>((set, get) => ({
     setApiKey(key);
     set({ apiKey: key, lastError: null });
     get().fetchAllData();
+  },
+
+  openAuthModal: (tab = 'login') => set({ isAuthModalOpen: true, authModalTab: tab, authError: null }),
+  closeAuthModal: () => set({ isAuthModalOpen: false, authError: null }),
+
+  login: async (payload: LoginPayload) => {
+    set({ isAuthenticating: true, authError: null });
+    try {
+      const resp = await apiClient.login(payload);
+      set({
+        currentUser: resp.user,
+        authToken: resp.token,
+        isAuthModalOpen: false,
+        isAuthenticating: false,
+        authError: null,
+      });
+      get().fetchAllData();
+      return true;
+    } catch (err: any) {
+      set({
+        authError: err?.message || 'Login failed. Please verify credentials.',
+        isAuthenticating: false,
+      });
+      return false;
+    }
+  },
+
+  register: async (payload: RegisterPayload) => {
+    set({ isAuthenticating: true, authError: null });
+    try {
+      const resp = await apiClient.register(payload);
+      set({
+        currentUser: resp.user,
+        authToken: resp.token,
+        isAuthModalOpen: false,
+        isAuthenticating: false,
+        authError: null,
+      });
+      get().fetchAllData();
+      return true;
+    } catch (err: any) {
+      set({
+        authError: err?.message || 'Registration failed.',
+        isAuthenticating: false,
+      });
+      return false;
+    }
+  },
+
+  logout: () => {
+    apiClient.logout();
+    set({
+      currentUser: null,
+      authToken: null,
+    });
+  },
+
+  checkAuth: async () => {
+    const token = getAuthToken();
+    if (!token) return;
+    try {
+      const user = await apiClient.getMe();
+      set({ currentUser: user });
+    } catch (err) {
+      console.warn('Session expired or invalid:', err);
+      apiClient.logout();
+      set({ currentUser: null, authToken: null });
+    }
   },
 }));
 

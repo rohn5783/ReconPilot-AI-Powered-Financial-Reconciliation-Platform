@@ -20,6 +20,7 @@ type MockRepository struct {
 	pg            *MockPGRepo
 	bank          *MockBankRepo
 	discrepancies *MockDiscrepancyRepo
+	users         *MockUserRepo
 }
 
 // NewMockRepository constructs a clean, empty in-memory repository.
@@ -28,12 +29,17 @@ func NewMockRepository(seedData bool) *MockRepository {
 	pg := &MockPGRepo{items: make(map[string]domain.PGSettlement)}
 	bank := &MockBankRepo{items: make(map[string]domain.BankStatement)}
 	discrepancies := &MockDiscrepancyRepo{items: make(map[uuid.UUID]domain.Discrepancy)}
+	users := &MockUserRepo{
+		usersByMail: make(map[string]*domain.User),
+		usersByID:   make(map[uuid.UUID]*domain.User),
+	}
 
 	repo := &MockRepository{
 		orders:        orders,
 		pg:            pg,
 		bank:          bank,
 		discrepancies: discrepancies,
+		users:         users,
 	}
 
 	return repo
@@ -43,6 +49,7 @@ func (r *MockRepository) Orders() OrderRepository             { return r.orders 
 func (r *MockRepository) PG() PGRepository                     { return r.pg }
 func (r *MockRepository) Bank() BankRepository                 { return r.bank }
 func (r *MockRepository) Discrepancies() DiscrepancyRepository { return r.discrepancies }
+func (r *MockRepository) Users() UserRepository                 { return r.users }
 
 func (r *MockRepository) ResetAll(ctx context.Context) error {
 	r.mu.Lock()
@@ -374,4 +381,54 @@ func (r *MockDiscrepancyRepo) Clear(ctx context.Context) error {
 	defer r.mu.Unlock()
 	r.items = make(map[uuid.UUID]domain.Discrepancy)
 	return nil
+}
+
+// MockUserRepo provides thread-safe in-memory user storage.
+type MockUserRepo struct {
+	mu          sync.RWMutex
+	usersByMail map[string]*domain.User
+	usersByID   map[uuid.UUID]*domain.User
+}
+
+func (r *MockUserRepo) Create(ctx context.Context, user *domain.User) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	emailKey := strings.ToLower(strings.TrimSpace(user.Email))
+	if _, exists := r.usersByMail[emailKey]; exists {
+		return errors.New("user with this email already exists")
+	}
+
+	r.usersByMail[emailKey] = user
+	r.usersByID[user.ID] = user
+	return nil
+}
+
+func (r *MockUserRepo) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	emailKey := strings.ToLower(strings.TrimSpace(email))
+	u, ok := r.usersByMail[emailKey]
+	if !ok {
+		return nil, nil
+	}
+	return u, nil
+}
+
+func (r *MockUserRepo) FindByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	u, ok := r.usersByID[id]
+	if !ok {
+		return nil, nil
+	}
+	return u, nil
+}
+
+func (r *MockUserRepo) Count(ctx context.Context) (int64, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return int64(len(r.usersByID)), nil
 }

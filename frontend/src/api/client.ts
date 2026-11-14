@@ -6,6 +6,10 @@ import {
   AIDiagnosis,
   DiscrepancyStatus,
   PipelineTelemetryEvent,
+  UserProfile,
+  RegisterPayload,
+  LoginPayload,
+  AuthResponse,
 } from '../types';
 
 export const LIVE_BACKEND_URL = 'https://reconpilot-backend-latest.onrender.com';
@@ -24,6 +28,18 @@ export function setApiKey(key: string): void {
     localStorage.setItem('RECONPILOT_API_KEY', key.trim());
   } else {
     localStorage.removeItem('RECONPILOT_API_KEY');
+  }
+}
+
+export function getAuthToken(): string | null {
+  return localStorage.getItem('RECONPILOT_AUTH_TOKEN');
+}
+
+export function setAuthToken(token: string | null): void {
+  if (token) {
+    localStorage.setItem('RECONPILOT_AUTH_TOKEN', token.trim());
+  } else {
+    localStorage.removeItem('RECONPILOT_AUTH_TOKEN');
   }
 }
 
@@ -46,6 +62,10 @@ async function extractErrorMessage(res: Response): Promise<string> {
 
 function getHeaders(extraHeaders: Record<string, string> = {}): HeadersInit {
   const headers: Record<string, string> = { ...extraHeaders };
+  const token = getAuthToken();
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
   const key = getApiKey();
   if (key) {
     headers['X-API-Key'] = key;
@@ -149,6 +169,46 @@ export const apiClient = {
     });
     if (!res.ok) throw new Error(await extractErrorMessage(res));
     return res.json();
+  },
+
+  async register(payload: RegisterPayload): Promise<AuthResponse> {
+    const res = await fetch(`${API_BASE}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
+    const data: AuthResponse = await res.json();
+    if (data?.token) {
+      setAuthToken(data.token);
+    }
+    return data;
+  },
+
+  async login(payload: LoginPayload): Promise<AuthResponse> {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
+    const data: AuthResponse = await res.json();
+    if (data?.token) {
+      setAuthToken(data.token);
+    }
+    return data;
+  },
+
+  async getMe(): Promise<UserProfile> {
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
+    return res.json();
+  },
+
+  logout(): void {
+    setAuthToken(null);
   },
 
   exportReport(format: 'csv' | 'json', target: 'traces' | 'discrepancies' = 'traces'): void {

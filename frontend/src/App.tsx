@@ -11,11 +11,15 @@ import { UploadView } from './components/views/UploadView';
 import { EvidenceDrawer } from './components/views/EvidenceDrawer';
 import { BottomTelemetryDock } from './components/layout/BottomTelemetryDock';
 import { CommandPalette } from './components/command/CommandPalette';
+import { AuthModal } from './components/auth/AuthModal';
 
 export const App: React.FC = () => {
   const activeView = useReconStore((state) => state.activeView);
 
   useEffect(() => {
+    // 0. Restore user authentication session if token exists
+    useReconStore.getState().checkAuth();
+
     // 1. Initial data fetch on mount
     useReconStore.getState().fetchAllData();
 
@@ -59,6 +63,9 @@ export const App: React.FC = () => {
 
       {/* Command Palette (Cmd+K) */}
       <CommandPalette />
+
+      {/* Operator Authentication & Registration Modal */}
+      <AuthModal />
     </div>
   );
 };

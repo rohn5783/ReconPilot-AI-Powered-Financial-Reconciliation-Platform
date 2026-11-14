@@ -8,7 +8,7 @@ import (
 )
 
 // NewRouter constructs and configures the Gin HTTP engine with secure middleware and API routes.
-func NewRouter(cfg *config.Config, reconSvc *service.ReconciliationService, exportSvc *service.ExportService) *gin.Engine {
+func NewRouter(cfg *config.Config, reconSvc *service.ReconciliationService, exportSvc *service.ExportService, authSvc *service.AuthService) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
 
@@ -17,7 +17,7 @@ func NewRouter(cfg *config.Config, reconSvc *service.ReconciliationService, expo
 	router.Use(RecoveryMiddleware())
 	router.Use(CORSMiddleware())
 
-	handler := NewHandler(reconSvc, exportSvc)
+	handler := NewHandler(reconSvc, exportSvc, authSvc)
 
 	// Public Health Probes & Root Status (Prevents 404 on Root Checks)
 	router.GET("/", handler.HealthCheck)
@@ -25,10 +25,20 @@ func NewRouter(cfg *config.Config, reconSvc *service.ReconciliationService, expo
 	router.GET("/health", handler.HealthCheck)
 	router.GET("/api/v1/health", handler.HealthCheck)
 
+	// Public Authentication Routes
+	auth := router.Group("/api/v1/auth")
+	{
+		auth.POST("/register", handler.Register)
+		auth.POST("/login", handler.Login)
+	}
+
 	// Protected API Routes
 	v1 := router.Group("/api/v1")
-	v1.Use(AuthMiddleware(cfg.Auth.APIKey))
+	v1.Use(AuthMiddleware(cfg.Auth.APIKey, authSvc))
 	{
+		// Operator Profile
+		v1.GET("/auth/me", handler.GetCurrentUser)
+
 		// Executive Workstation Dashboard
 		v1.GET("/summary", handler.GetSummary)
 		v1.GET("/traces", handler.GetTraces)

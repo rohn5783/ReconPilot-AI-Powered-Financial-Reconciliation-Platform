@@ -210,3 +210,58 @@ type PipelineTelemetryEvent struct {
 	Timestamp          time.Time   `json:"timestamp"`
 }
 
+// User represents an authenticated platform operator / analyst.
+type User struct {
+	ID           uuid.UUID `json:"id" db:"id"`
+	Email        string    `json:"email" db:"email"`
+	PasswordHash string    `json:"-" db:"password_hash"`
+	FullName     string    `json:"full_name" db:"full_name"`
+	CompanyName  string    `json:"company_name" db:"company_name"`
+	Role         string    `json:"role" db:"role"`
+	CreatedAt    time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// UserPublic is the sanitized public user profile.
+type UserPublic struct {
+	ID          uuid.UUID `json:"id"`
+	Email       string    `json:"email"`
+	FullName    string    `json:"full_name"`
+	CompanyName string    `json:"company_name"`
+	Role        string    `json:"role"`
+	CreatedAt   time.Time `json:"created_at"`
+}
+
+// ToPublic converts User to its safe public representation.
+func (u *User) ToPublic() UserPublic {
+	return UserPublic{
+		ID:          u.ID,
+		Email:       u.Email,
+		FullName:    u.FullName,
+		CompanyName: u.CompanyName,
+		Role:        u.Role,
+		CreatedAt:   u.CreatedAt,
+	}
+}
+
+// RegisterRequest holds registration inputs.
+type RegisterRequest struct {
+	Email       string `json:"email" binding:"required,email"`
+	Password    string `json:"password" binding:"required,min=6"`
+	FullName    string `json:"full_name" binding:"required"`
+	CompanyName string `json:"company_name"`
+	Role        string `json:"role"`
+}
+
+// LoginRequest holds login credentials.
+type LoginRequest struct {
+	Email    string `json:"email" binding:"required,email"`
+	Password string `json:"password" binding:"required"`
+}
+
+// AuthResponse returns token and user upon registration or login.
+type AuthResponse struct {
+	Token string     `json:"token"`
+	User  UserPublic `json:"user"`
+}
+

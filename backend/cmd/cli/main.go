@@ -219,8 +219,9 @@ func runServeCLI(cmd *cobra.Command, args []string) {
 	hub := stream.NewHub()
 	reconSvc := service.NewReconciliationService(repo, engine, aiClient, hub)
 	exportSvc := service.NewExportService()
+	authSvc := service.NewAuthService(repo.Users(), cfg.Auth.JWTSecret)
 
-	router := transporthttp.NewRouter(cfg, reconSvc, exportSvc)
+	router := transporthttp.NewRouter(cfg, reconSvc, exportSvc, authSvc)
 	log.Printf("Starting ReconPilot API server on :%d", cfg.Server.Port)
 	if err := router.Run(fmt.Sprintf(":%d", cfg.Server.Port)); err != nil {
 		log.Fatalf("Server failed: %v", err)

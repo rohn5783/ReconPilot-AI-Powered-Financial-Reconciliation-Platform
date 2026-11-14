@@ -145,3 +145,31 @@ export interface PipelineTelemetryEvent {
   timestamp: string;
 }
 
+export interface UserProfile {
+  id: string;
+  email: string;
+  full_name: string;
+  company_name?: string;
+  role: string;
+  created_at: string;
+}
+
+export interface RegisterPayload {
+  email: string;
+  password: string;
+  full_name: string;
+  company_name?: string;
+  role?: string;
+}
+
+export interface LoginPayload {
+  email: string;
+  password: string;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: UserProfile;
+}
+
+

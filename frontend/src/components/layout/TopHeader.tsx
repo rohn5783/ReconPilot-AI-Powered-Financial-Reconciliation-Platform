@@ -16,6 +16,9 @@ import {
   Check,
   X,
   Trash2,
+  LogIn,
+  LogOut,
+  User,
 } from 'lucide-react';
 import { useReconStore } from '../../store/useReconStore';
 import { apiClient } from '../../api/client';
@@ -33,13 +36,27 @@ export const TopHeader: React.FC = () => {
     apiKey,
     saveApiKey,
     lastError,
+    currentUser,
+    openAuthModal,
+    logout,
   } = useReconStore();
 
   const [exportOpen, setExportOpen] = useState(false);
   const [keyModalOpen, setKeyModalOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [inputKey, setInputKey] = useState(apiKey || '');
 
   const isAuthError = Boolean(lastError && (lastError.toLowerCase().includes('unauthorized') || lastError.includes('401')));
+
+  const getInitials = (name?: string, email?: string) => {
+    if (name) {
+      const parts = name.trim().split(/\s+/);
+      if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+      if (parts.length === 1 && parts[0].length > 0) return parts[0].substring(0, 2).toUpperCase();
+    }
+    if (email) return email.substring(0, 2).toUpperCase();
+    return 'OP';
+  };
 
   const handleSaveKey = (e: React.FormEvent) => {
     e.preventDefault();
@@ -266,6 +283,59 @@ export const TopHeader: React.FC = () => {
             </>
           )}
         </button>
+
+        {/* User Account / Sign In */}
+        {currentUser ? (
+          <div className="relative">
+            <button
+              onClick={() => setUserMenuOpen(!userMenuOpen)}
+              className="flex items-center gap-2 px-2.5 py-1.5 rounded bg-ledger-800 hover:bg-ledger-750 border border-ledger-700 hover:border-ledger-600 text-xs transition"
+            >
+              <div className="w-5 h-5 rounded-full bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 flex items-center justify-center text-[10px] font-mono font-semibold">
+                {getInitials(currentUser.full_name, currentUser.email)}
+              </div>
+              <span className="font-mono text-xs text-slate-200 max-w-[110px] truncate">
+                {currentUser.full_name || currentUser.email}
+              </span>
+              <ChevronDown className="w-3 h-3 text-ledger-400" />
+            </button>
+
+            {userMenuOpen && (
+              <div className="absolute right-0 mt-1.5 w-64 bg-ledger-900 border border-ledger-750 rounded-xl shadow-2xl p-3 z-50 text-xs select-text">
+                <div className="pb-2.5 mb-2.5 border-b border-ledger-800">
+                  <div className="text-slate-100 font-semibold truncate">{currentUser.full_name}</div>
+                  <div className="text-[11px] font-mono text-slate-400 truncate">{currentUser.email}</div>
+                  {currentUser.company_name && (
+                    <div className="text-[10px] text-slate-400 mt-0.5 truncate">{currentUser.company_name}</div>
+                  )}
+                  <div className="mt-2 inline-block px-2 py-0.5 rounded text-[10px] font-mono uppercase font-semibold bg-indigo-500/15 border border-indigo-500/30 text-indigo-300">
+                    {currentUser.role.replace(/_/g, ' ')}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    logout();
+                    setUserMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 transition text-left"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span className="font-mono text-xs">Sign Out</span>
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <button
+            onClick={() => openAuthModal('login')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/40 text-xs font-mono font-medium transition"
+          >
+            <LogIn className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Sign In</span>
+          </button>
+        )}
       </div>
     </header>
   );
