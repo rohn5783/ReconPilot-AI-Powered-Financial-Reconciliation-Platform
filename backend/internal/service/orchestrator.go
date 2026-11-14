@@ -405,3 +405,93 @@ func (s *ReconciliationService) GetUploads(ctx context.Context) ([]domain.Upload
 func (s *ReconciliationService) GetUploadByID(ctx context.Context, id uuid.UUID) (*domain.UploadRecord, error) {
 	return s.repo.Uploads().FindByID(ctx, id)
 }
+
+// GetContractRules retrieves all contract rate and tolerance configurations.
+func (s *ReconciliationService) GetContractRules(ctx context.Context) ([]domain.ContractRule, error) {
+	rules, err := s.repo.ContractRules().FindAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(rules) == 0 {
+		defaultRule := domain.ContractRule{
+			ID:                uuid.New(),
+			Name:              "Institutional Base Contract (Razorpay / Stripe)",
+			MDRRate:           money.FromStringOrZero("2.0000"),
+			GSTRate:           money.FromStringOrZero("18.0000"),
+			FeeTolerance:      money.FromStringOrZero("0.0100"),
+			RoundingPrecision: 4,
+			RoundingMode:      "HALF_EVEN",
+			IsActive:          true,
+			Description:       "Standard 2.0% MDR with 18% statutory GST and ₹0.01 fee tolerance (Banker's rounding)",
+			CreatedAt:         time.Now().UTC(),
+			UpdatedAt:         time.Now().UTC(),
+		}
+		_ = s.repo.ContractRules().Create(ctx, &defaultRule)
+		rules = []domain.ContractRule{defaultRule}
+	}
+	return rules, nil
+}
+
+// CreateContractRule saves a new user-defined contract configuration.
+func (s *ReconciliationService) CreateContractRule(ctx context.Context, rule *domain.ContractRule) error {
+	if rule.ID == uuid.Nil {
+		rule.ID = uuid.New()
+	}
+	if err := s.repo.ContractRules().Create(ctx, rule); err != nil {
+		return err
+	}
+	if rule.IsActive {
+		s.applyContractRuleToEngine(ctx, rule)
+	}
+	return nil
+}
+
+// UpdateContractRule updates an existing contract rule and refreshes reconciliation if active.
+func (s *ReconciliationService) UpdateContractRule(ctx context.Context, rule *domain.ContractRule) error {
+	if err := s.repo.ContractRules().Update(ctx, rule); err != nil {
+		return err
+	}
+	if rule.IsActive {
+		s.applyContractRuleToEngine(ctx, rule)
+	}
+	return nil
+}
+
+// ActivateContractRule marks a contract rule as active and updates the matching engine rates.
+func (s *ReconciliationService) ActivateContractRule(ctx context.Context, id uuid.UUID) (*domain.ContractRule, error) {
+	if err := s.repo.ContractRules().SetActive(ctx, id); err != nil {
+		return nil, err
+	}
+	rule, err := s.repo.ContractRules().FindByID(ctx, id)
+	if err != nil || rule == nil {
+		return nil, fmt.Errorf("lookup activated rule: %w", err)
+	}
+	s.applyContractRuleToEngine(ctx, rule)
+	return rule, nil
+}
+
+// DeleteContractRule deletes an inactive rule.
+func (s *ReconciliationService) DeleteContractRule(ctx context.Context, id uuid.UUID) error {
+	return s.repo.ContractRules().Delete(ctx, id)
+}
+
+func (s *ReconciliationService) applyContractRuleToEngine(ctx context.Context, rule *domain.ContractRule) {
+	currentCfg := s.matchingEngine.Config()
+	s.matchingEngine.UpdateConfig(matching.EngineConfig{
+		DefaultFeeRate: rule.MDRRate,
+		DefaultTaxRate: rule.GSTRate,
+		FeeTolerance:   rule.FeeTolerance,
+		MaxConcurrency: currentCfg.MaxConcurrency,
+	})
+	// Trigger re-reconciliation with the new rates
+	_, _ = s.RunReconciliation(ctx, nil, nil, nil)
+	if s.hub != nil {
+		s.hub.Broadcast(domain.PipelineTelemetryEvent{
+			Type:               "kpi_update",
+			Stage:              "COMPLETED",
+			ProgressPercentage: 100.0,
+			Message:            fmt.Sprintf("Contract Rule %q applied: MDR %s%%, GST %s%%, Tolerance %s", rule.Name, rule.MDRRate.StringFixed(2), rule.GSTRate.StringFixed(2), rule.FeeTolerance.StringFixed(4)),
+			Timestamp:          time.Now().UTC(),
+		})
+	}
+}

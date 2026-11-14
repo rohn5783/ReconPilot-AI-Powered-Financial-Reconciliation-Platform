@@ -279,3 +279,18 @@ type UploadRecord struct {
 	Summary     string    `json:"summary" db:"summary"`
 }
 
+// ContractRule defines agreed MDR, statutory GST, fee tolerance, and rounding specifications.
+type ContractRule struct {
+	ID                uuid.UUID     `json:"id" db:"id"`
+	Name              string        `json:"name" db:"name"`
+	MDRRate           money.Decimal `json:"mdr_rate" db:"mdr_rate"`                   // e.g. 2.0000 (%)
+	GSTRate           money.Decimal `json:"gst_rate" db:"gst_rate"`                   // e.g. 18.0000 (%)
+	FeeTolerance      money.Decimal `json:"fee_tolerance" db:"fee_tolerance"`         // e.g. 0.0100
+	RoundingPrecision int           `json:"rounding_precision" db:"rounding_precision"` // e.g. 2 or 4
+	RoundingMode      string        `json:"rounding_mode" db:"rounding_mode"`           // "HALF_EVEN", "HALF_UP", "FLOOR", "CEIL"
+	IsActive          bool          `json:"is_active" db:"is_active"`
+	Description       string        `json:"description" db:"description"`
+	CreatedAt         time.Time     `json:"created_at" db:"created_at"`
+	UpdatedAt         time.Time     `json:"updated_at" db:"updated_at"`
+}
+

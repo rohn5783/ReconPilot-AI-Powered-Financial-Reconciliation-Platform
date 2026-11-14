@@ -10,10 +10,11 @@ import {
   RegisterPayload,
   LoginPayload,
   UploadRecord,
+  ContractRule,
 } from '../types';
 import { apiClient, getApiKey, setApiKey, getAuthToken } from '../api/client';
 
-export type WorkstationView = 'explorer' | 'batches' | 'discrepancies' | 'upload' | 'history';
+export type WorkstationView = 'explorer' | 'batches' | 'discrepancies' | 'upload' | 'history' | 'rules';
 
 interface ReconState {
   summary: ReconciliationSummary | null;
@@ -27,6 +28,10 @@ interface ReconState {
   // Upload History & Audit Ingestion State
   uploadHistory: UploadRecord[];
   isLoadingUploads: boolean;
+
+  // Contract Rules State
+  contractRules: ContractRule[];
+  isLoadingRules: boolean;
 
   // Authentication State
   currentUser: UserProfile | null;
@@ -85,6 +90,12 @@ interface ReconState {
   fetchUploadHistory: () => Promise<void>;
   downloadUploadFile: (id: string, fileName: string) => void;
 
+  // Contract Rules Actions
+  fetchContractRules: () => Promise<void>;
+  saveContractRule: (rule: Partial<ContractRule>) => Promise<boolean>;
+  activateContractRule: (id: string) => Promise<boolean>;
+  deleteContractRule: (id: string) => Promise<boolean>;
+
   // Authentication Actions
   openAuthModal: (tab?: 'login' | 'register') => void;
   closeAuthModal: () => void;
@@ -106,6 +117,10 @@ export const useReconStore = create<ReconState>((set, get) => ({
   // Upload History & Audit Ingestion State
   uploadHistory: [],
   isLoadingUploads: false,
+
+  // Contract Rules State
+  contractRules: [],
+  isLoadingRules: false,
 
   // Authentication State
   currentUser: null,
@@ -187,6 +202,7 @@ export const useReconStore = create<ReconState>((set, get) => ({
       get().fetchPayoutBatches(),
       get().fetchDiscrepancies(),
       get().fetchUploadHistory(),
+      get().fetchContractRules(),
     ]);
     set({ isLoading: false });
   },
@@ -452,6 +468,68 @@ export const useReconStore = create<ReconState>((set, get) => ({
       console.warn('Session expired or invalid:', err);
       apiClient.logout();
       set({ currentUser: null, authToken: null });
+    }
+  },
+
+  fetchContractRules: async () => {
+    set({ isLoadingRules: true });
+    try {
+      const res = await apiClient.getContractRules();
+      set({ contractRules: res?.data || [], isLoadingRules: false });
+    } catch (err: any) {
+      console.error('Failed to fetch contract rules:', err);
+      set({ isLoadingRules: false, lastError: err?.message || 'Failed to fetch contract rules' });
+    }
+  },
+
+  saveContractRule: async (rule: Partial<ContractRule>) => {
+    set({ isLoadingRules: true });
+    try {
+      if (rule.id) {
+        await apiClient.updateContractRule(rule.id, rule);
+      } else {
+        await apiClient.createContractRule(rule);
+      }
+      await get().fetchContractRules();
+      await get().fetchDiscrepancies();
+      await get().fetchSummary();
+      set({ isLoadingRules: false });
+      return true;
+    } catch (err: any) {
+      console.error('Failed to save contract rule:', err);
+      set({ isLoadingRules: false, lastError: err?.message || 'Failed to save contract rule' });
+      return false;
+    }
+  },
+
+  activateContractRule: async (id: string) => {
+    set({ isLoadingRules: true });
+    try {
+      await apiClient.activateContractRule(id);
+      await get().fetchContractRules();
+      await get().fetchDiscrepancies();
+      await get().fetchSummary();
+      await get().fetchTraces();
+      set({ isLoadingRules: false });
+      return true;
+    } catch (err: any) {
+      console.error('Failed to activate contract rule:', err);
+      set({ isLoadingRules: false, lastError: err?.message || 'Failed to activate contract rule' });
+      return false;
+    }
+  },
+
+  deleteContractRule: async (id: string) => {
+    set({ isLoadingRules: true });
+    try {
+      await apiClient.deleteContractRule(id);
+      await get().fetchContractRules();
+      set({ isLoadingRules: false });
+      return true;
+    } catch (err: any) {
+      console.error('Failed to delete contract rule:', err);
+      set({ isLoadingRules: false, lastError: err?.message || 'Failed to delete contract rule' });
+      return false;
     }
   },
 }));

@@ -14,6 +14,7 @@ import {
   X,
   Trash2,
   History,
+  Scale,
 } from 'lucide-react';
 import { useReconStore } from '../../store/useReconStore';
 import { apiClient } from '../../api/client';
@@ -173,6 +174,17 @@ export const CommandPalette: React.FC = () => {
               >
                 <History className="w-4 h-4 text-indigo-400" />
                 <span>Upload History & Ingestion Archive</span>
+              </Command.Item>
+
+              <Command.Item
+                onSelect={() => {
+                  setActiveView('rules');
+                  setCommandPaletteOpen(false);
+                }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-ledger-200 hover:text-white hover:bg-ledger-800 cursor-pointer"
+              >
+                <Scale className="w-4 h-4 text-recon-emerald" />
+                <span>Contract Rules, Agreed MDR & GST Rates</span>
               </Command.Item>
             </Command.Group>
 

@@ -78,6 +78,17 @@ type UploadRepository interface {
 	Clear(ctx context.Context) error
 }
 
+// ContractRuleRepository handles persistence, updates, and activation of contract rates & tolerance rules.
+type ContractRuleRepository interface {
+	Create(ctx context.Context, rule *domain.ContractRule) error
+	Update(ctx context.Context, rule *domain.ContractRule) error
+	FindAll(ctx context.Context) ([]domain.ContractRule, error)
+	FindByID(ctx context.Context, id uuid.UUID) (*domain.ContractRule, error)
+	GetActive(ctx context.Context) (*domain.ContractRule, error)
+	SetActive(ctx context.Context, id uuid.UUID) error
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
 // ReconciliationRepository aggregates all storage entities into a unified interface.
 type ReconciliationRepository interface {
 	Orders() OrderRepository
@@ -86,6 +97,7 @@ type ReconciliationRepository interface {
 	Discrepancies() DiscrepancyRepository
 	Users() UserRepository
 	Uploads() UploadRepository
+	ContractRules() ContractRuleRepository
 	ResetAll(ctx context.Context) error
 	Close() error
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"reconpilot/internal/domain"
+	"reconpilot/pkg/money"
 )
 
 // MockRepository provides a thread-safe in-memory database store.
@@ -23,9 +24,10 @@ type MockRepository struct {
 	discrepancies *MockDiscrepancyRepo
 	users         *MockUserRepo
 	uploads       *MockUploadRepo
+	contractRules *MockContractRuleRepo
 }
 
-// NewMockRepository constructs a clean, empty in-memory repository.
+// NewMockRepository constructs a clean, empty in-memory repository with default base rules.
 func NewMockRepository(seedData bool) *MockRepository {
 	orders := &MockOrderRepo{items: make(map[string]domain.Order)}
 	pg := &MockPGRepo{items: make(map[string]domain.PGSettlement)}
@@ -37,6 +39,25 @@ func NewMockRepository(seedData bool) *MockRepository {
 	}
 	uploads := &MockUploadRepo{records: make(map[uuid.UUID]domain.UploadRecord)}
 
+	defaultRuleID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	contractRules := &MockContractRuleRepo{
+		rules: map[uuid.UUID]domain.ContractRule{
+			defaultRuleID: {
+				ID:                defaultRuleID,
+				Name:              "Institutional Base Contract (Razorpay / Stripe)",
+				MDRRate:           money.FromStringOrZero("2.0000"),
+				GSTRate:           money.FromStringOrZero("18.0000"),
+				FeeTolerance:      money.FromStringOrZero("0.0100"),
+				RoundingPrecision: 4,
+				RoundingMode:      "HALF_EVEN",
+				IsActive:          true,
+				Description:       "Standard 2.0% MDR with 18% statutory GST and ₹0.01 fee tolerance (Banker's rounding)",
+				CreatedAt:         time.Now().UTC(),
+				UpdatedAt:         time.Now().UTC(),
+			},
+		},
+	}
+
 	repo := &MockRepository{
 		orders:        orders,
 		pg:            pg,
@@ -44,17 +65,19 @@ func NewMockRepository(seedData bool) *MockRepository {
 		discrepancies: discrepancies,
 		users:         users,
 		uploads:       uploads,
+		contractRules: contractRules,
 	}
 
 	return repo
 }
 
-func (r *MockRepository) Orders() OrderRepository             { return r.orders }
-func (r *MockRepository) PG() PGRepository                     { return r.pg }
-func (r *MockRepository) Bank() BankRepository                 { return r.bank }
-func (r *MockRepository) Discrepancies() DiscrepancyRepository { return r.discrepancies }
-func (r *MockRepository) Users() UserRepository                 { return r.users }
-func (r *MockRepository) Uploads() UploadRepository             { return r.uploads }
+func (r *MockRepository) Orders() OrderRepository                   { return r.orders }
+func (r *MockRepository) PG() PGRepository                           { return r.pg }
+func (r *MockRepository) Bank() BankRepository                       { return r.bank }
+func (r *MockRepository) Discrepancies() DiscrepancyRepository       { return r.discrepancies }
+func (r *MockRepository) Users() UserRepository                       { return r.users }
+func (r *MockRepository) Uploads() UploadRepository                   { return r.uploads }
+func (r *MockRepository) ContractRules() ContractRuleRepository       { return r.contractRules }
 
 func (r *MockRepository) ResetAll(ctx context.Context) error {
 	r.mu.Lock()
@@ -494,5 +517,148 @@ func (r *MockUploadRepo) Clear(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.records = make(map[uuid.UUID]domain.UploadRecord)
+	return nil
+}
+
+// MockContractRuleRepo provides in-memory thread-safe storage for contract rules.
+type MockContractRuleRepo struct {
+	mu    sync.RWMutex
+	rules map[uuid.UUID]domain.ContractRule
+}
+
+func (r *MockContractRuleRepo) Create(ctx context.Context, rule *domain.ContractRule) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if rule.ID == uuid.Nil {
+		rule.ID = uuid.New()
+	}
+	now := time.Now().UTC()
+	if rule.CreatedAt.IsZero() {
+		rule.CreatedAt = now
+	}
+	if rule.UpdatedAt.IsZero() {
+		rule.UpdatedAt = now
+	}
+	if rule.RoundingPrecision <= 0 {
+		rule.RoundingPrecision = 4
+	}
+	if rule.RoundingMode == "" {
+		rule.RoundingMode = "HALF_EVEN"
+	}
+
+	if rule.IsActive {
+		for id, rItem := range r.rules {
+			rItem.IsActive = false
+			r.rules[id] = rItem
+		}
+	}
+
+	r.rules[rule.ID] = *rule
+	return nil
+}
+
+func (r *MockContractRuleRepo) Update(ctx context.Context, rule *domain.ContractRule) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.rules[rule.ID]; !exists {
+		return errors.New("contract rule not found")
+	}
+
+	rule.UpdatedAt = time.Now().UTC()
+	if rule.RoundingPrecision <= 0 {
+		rule.RoundingPrecision = 4
+	}
+	if rule.RoundingMode == "" {
+		rule.RoundingMode = "HALF_EVEN"
+	}
+
+	if rule.IsActive {
+		for id, rItem := range r.rules {
+			if id != rule.ID {
+				rItem.IsActive = false
+				r.rules[id] = rItem
+			}
+		}
+	}
+
+	r.rules[rule.ID] = *rule
+	return nil
+}
+
+func (r *MockContractRuleRepo) FindAll(ctx context.Context) ([]domain.ContractRule, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	res := make([]domain.ContractRule, 0, len(r.rules))
+	for _, rule := range r.rules {
+		res = append(res, rule)
+	}
+	sort.Slice(res, func(i, j int) bool {
+		if res[i].IsActive != res[j].IsActive {
+			return res[i].IsActive
+		}
+		return res[i].UpdatedAt.After(res[j].UpdatedAt)
+	})
+	return res, nil
+}
+
+func (r *MockContractRuleRepo) FindByID(ctx context.Context, id uuid.UUID) (*domain.ContractRule, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	rule, ok := r.rules[id]
+	if !ok {
+		return nil, nil
+	}
+	return &rule, nil
+}
+
+func (r *MockContractRuleRepo) GetActive(ctx context.Context) (*domain.ContractRule, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, rule := range r.rules {
+		if rule.IsActive {
+			return &rule, nil
+		}
+	}
+	return nil, nil
+}
+
+func (r *MockContractRuleRepo) SetActive(ctx context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	target, exists := r.rules[id]
+	if !exists {
+		return errors.New("contract rule not found")
+	}
+
+	for rID, rItem := range r.rules {
+		rItem.IsActive = false
+		r.rules[rID] = rItem
+	}
+
+	target.IsActive = true
+	target.UpdatedAt = time.Now().UTC()
+	r.rules[id] = target
+	return nil
+}
+
+func (r *MockContractRuleRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	target, exists := r.rules[id]
+	if !exists {
+		return errors.New("contract rule not found")
+	}
+	if target.IsActive {
+		return errors.New("cannot delete the currently active contract rule; activate another rule first")
+	}
+
+	delete(r.rules, id)
 	return nil
 }

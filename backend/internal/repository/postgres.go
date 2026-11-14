@@ -23,6 +23,7 @@ type PostgresRepository struct {
 	discrepancies *PostgresDiscrepancyRepo
 	users         *PostgresUserRepo
 	uploads       *PostgresUploadRepo
+	contractRules *PostgresContractRuleRepo
 }
 
 // NewPostgresRepository initializes a connection pool and returns a PostgresRepository.
@@ -55,6 +56,7 @@ func NewPostgresRepository(ctx context.Context, databaseURL string) (*PostgresRe
 		discrepancies: &PostgresDiscrepancyRepo{pool: pool},
 		users:         &PostgresUserRepo{pool: pool},
 		uploads:       &PostgresUploadRepo{pool: pool},
+		contractRules: &PostgresContractRuleRepo{pool: pool},
 	}
 
 	if err := repo.AutoMigrate(ctx); err != nil {
@@ -176,6 +178,22 @@ CREATE TABLE IF NOT EXISTS upload_records (
 
 CREATE INDEX IF NOT EXISTS idx_upload_records_uploaded_at ON upload_records(uploaded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_upload_records_file_type ON upload_records(file_type);
+
+CREATE TABLE IF NOT EXISTS contract_rules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(128) NOT NULL,
+    mdr_rate NUMERIC(18, 4) NOT NULL DEFAULT 2.0000,
+    gst_rate NUMERIC(18, 4) NOT NULL DEFAULT 18.0000,
+    fee_tolerance NUMERIC(18, 4) NOT NULL DEFAULT 0.0100,
+    rounding_precision INT NOT NULL DEFAULT 4,
+    rounding_mode VARCHAR(32) NOT NULL DEFAULT 'HALF_EVEN',
+    is_active BOOLEAN NOT NULL DEFAULT false,
+    description TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_contract_rules_active ON contract_rules(is_active);
 `
 
 func (r *PostgresRepository) Orders() OrderRepository             { return r.orders }
@@ -184,6 +202,7 @@ func (r *PostgresRepository) Bank() BankRepository                 { return r.ba
 func (r *PostgresRepository) Discrepancies() DiscrepancyRepository { return r.discrepancies }
 func (r *PostgresRepository) Users() UserRepository                 { return r.users }
 func (r *PostgresRepository) Uploads() UploadRepository             { return r.uploads }
+func (r *PostgresRepository) ContractRules() ContractRuleRepository { return r.contractRules }
 
 func (r *PostgresRepository) ResetAll(ctx context.Context) error {
 	queries := []string{
@@ -1023,4 +1042,184 @@ func (r *PostgresUploadRepo) FindByID(ctx context.Context, id uuid.UUID) (*domai
 func (r *PostgresUploadRepo) Clear(ctx context.Context) error {
 	_, err := r.pool.Exec(ctx, "TRUNCATE TABLE upload_records CASCADE;")
 	return err
+}
+
+// PostgresContractRuleRepo provides PostgreSQL persistence for contract rules and matching configs.
+type PostgresContractRuleRepo struct {
+	pool *pgxpool.Pool
+}
+
+func (r *PostgresContractRuleRepo) Create(ctx context.Context, rule *domain.ContractRule) error {
+	if rule.ID == uuid.Nil {
+		rule.ID = uuid.New()
+	}
+	now := time.Now().UTC()
+	if rule.CreatedAt.IsZero() {
+		rule.CreatedAt = now
+	}
+	if rule.UpdatedAt.IsZero() {
+		rule.UpdatedAt = now
+	}
+	if rule.RoundingPrecision <= 0 {
+		rule.RoundingPrecision = 4
+	}
+	if rule.RoundingMode == "" {
+		rule.RoundingMode = "HALF_EVEN"
+	}
+
+	if rule.IsActive {
+		_, _ = r.pool.Exec(ctx, "UPDATE contract_rules SET is_active = false;")
+	}
+
+	query := `
+		INSERT INTO contract_rules (id, name, mdr_rate, gst_rate, fee_tolerance, rounding_precision, rounding_mode, is_active, description, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);
+	`
+	_, err := r.pool.Exec(ctx, query,
+		rule.ID, rule.Name, rule.MDRRate, rule.GSTRate, rule.FeeTolerance,
+		rule.RoundingPrecision, rule.RoundingMode, rule.IsActive, rule.Description,
+		rule.CreatedAt, rule.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert contract rule: %w", err)
+	}
+	return nil
+}
+
+func (r *PostgresContractRuleRepo) Update(ctx context.Context, rule *domain.ContractRule) error {
+	rule.UpdatedAt = time.Now().UTC()
+	if rule.RoundingPrecision <= 0 {
+		rule.RoundingPrecision = 4
+	}
+	if rule.RoundingMode == "" {
+		rule.RoundingMode = "HALF_EVEN"
+	}
+
+	if rule.IsActive {
+		_, _ = r.pool.Exec(ctx, "UPDATE contract_rules SET is_active = false WHERE id != $1;", rule.ID)
+	}
+
+	query := `
+		UPDATE contract_rules
+		SET name = $1, mdr_rate = $2, gst_rate = $3, fee_tolerance = $4, rounding_precision = $5, rounding_mode = $6, is_active = $7, description = $8, updated_at = $9
+		WHERE id = $10;
+	`
+	res, err := r.pool.Exec(ctx, query,
+		rule.Name, rule.MDRRate, rule.GSTRate, rule.FeeTolerance,
+		rule.RoundingPrecision, rule.RoundingMode, rule.IsActive, rule.Description,
+		rule.UpdatedAt, rule.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("update contract rule: %w", err)
+	}
+	if res.RowsAffected() == 0 {
+		return errors.New("contract rule not found")
+	}
+	return nil
+}
+
+func (r *PostgresContractRuleRepo) FindAll(ctx context.Context) ([]domain.ContractRule, error) {
+	query := `
+		SELECT id, name, mdr_rate, gst_rate, fee_tolerance, rounding_precision, rounding_mode, is_active, description, created_at, updated_at
+		FROM contract_rules
+		ORDER BY is_active DESC, updated_at DESC;
+	`
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query contract rules: %w", err)
+	}
+	defer rows.Close()
+
+	var rules []domain.ContractRule
+	for rows.Next() {
+		var cr domain.ContractRule
+		if err := rows.Scan(
+			&cr.ID, &cr.Name, &cr.MDRRate, &cr.GSTRate, &cr.FeeTolerance,
+			&cr.RoundingPrecision, &cr.RoundingMode, &cr.IsActive, &cr.Description,
+			&cr.CreatedAt, &cr.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan contract rule: %w", err)
+		}
+		rules = append(rules, cr)
+	}
+	if rules == nil {
+		rules = []domain.ContractRule{}
+	}
+	return rules, rows.Err()
+}
+
+func (r *PostgresContractRuleRepo) FindByID(ctx context.Context, id uuid.UUID) (*domain.ContractRule, error) {
+	query := `
+		SELECT id, name, mdr_rate, gst_rate, fee_tolerance, rounding_precision, rounding_mode, is_active, description, created_at, updated_at
+		FROM contract_rules
+		WHERE id = $1;
+	`
+	var cr domain.ContractRule
+	err := r.pool.QueryRow(ctx, query, id).Scan(
+		&cr.ID, &cr.Name, &cr.MDRRate, &cr.GSTRate, &cr.FeeTolerance,
+		&cr.RoundingPrecision, &cr.RoundingMode, &cr.IsActive, &cr.Description,
+		&cr.CreatedAt, &cr.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("find contract rule by id: %w", err)
+	}
+	return &cr, nil
+}
+
+func (r *PostgresContractRuleRepo) GetActive(ctx context.Context) (*domain.ContractRule, error) {
+	query := `
+		SELECT id, name, mdr_rate, gst_rate, fee_tolerance, rounding_precision, rounding_mode, is_active, description, created_at, updated_at
+		FROM contract_rules
+		WHERE is_active = true
+		LIMIT 1;
+	`
+	var cr domain.ContractRule
+	err := r.pool.QueryRow(ctx, query).Scan(
+		&cr.ID, &cr.Name, &cr.MDRRate, &cr.GSTRate, &cr.FeeTolerance,
+		&cr.RoundingPrecision, &cr.RoundingMode, &cr.IsActive, &cr.Description,
+		&cr.CreatedAt, &cr.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get active contract rule: %w", err)
+	}
+	return &cr, nil
+}
+
+func (r *PostgresContractRuleRepo) SetActive(ctx context.Context, id uuid.UUID) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, "UPDATE contract_rules SET is_active = false;"); err != nil {
+		return err
+	}
+
+	res, err := tx.Exec(ctx, "UPDATE contract_rules SET is_active = true, updated_at = NOW() WHERE id = $1;", id)
+	if err != nil {
+		return err
+	}
+	if res.RowsAffected() == 0 {
+		return errors.New("contract rule not found")
+	}
+
+	return tx.Commit(ctx)
+}
+
+func (r *PostgresContractRuleRepo) Delete(ctx context.Context, id uuid.UUID) error {
+	res, err := r.pool.Exec(ctx, "DELETE FROM contract_rules WHERE id = $1;", id)
+	if err != nil {
+		return fmt.Errorf("delete contract rule: %w", err)
+	}
+	if res.RowsAffected() == 0 {
+		return errors.New("contract rule not found")
+	}
+	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,6 +42,7 @@ type ReconciliationResult struct {
 
 // Engine executes concurrent 3-way reconciliation across orders, PG settlements, and bank statement credits.
 type Engine struct {
+	mu     sync.RWMutex
 	config EngineConfig
 }
 
@@ -55,9 +57,31 @@ func NewEngine(cfg EngineConfig) *Engine {
 	return &Engine{config: cfg}
 }
 
-// Config returns the active engine configuration.
+// Config returns the active engine configuration in a thread-safe manner.
 func (e *Engine) Config() EngineConfig {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	return e.config
+}
+
+// UpdateConfig updates the engine contract rates and tolerances dynamically.
+func (e *Engine) UpdateConfig(cfg EngineConfig) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if cfg.MaxConcurrency <= 0 {
+		cfg.MaxConcurrency = 10
+	}
+	if cfg.FeeTolerance.IsZero() {
+		cfg.FeeTolerance = money.FromStringOrZero("0.0100")
+	}
+	e.config = cfg
+}
+
+func normalizeRateToDecimal(r money.Decimal) money.Decimal {
+	if r.GreaterThan(money.FromStringOrZero("1.0000")) {
+		return money.Div(r, money.FromStringOrZero("100.0000"))
+	}
+	return r
 }
 
 // ProgressFunc reports real-time pipeline events and telemetry to listeners (SSE/WebSockets).
@@ -227,8 +251,9 @@ func (e *Engine) Reconcile(
 		}
 
 		// 3. Fee (MDR) Overcharge & Tax Calculation Check
-		feeRate := e.config.DefaultFeeRate
-		taxRate := e.config.DefaultTaxRate
+		activeCfg := e.Config()
+		feeRate := normalizeRateToDecimal(activeCfg.DefaultFeeRate)
+		taxRate := normalizeRateToDecimal(activeCfg.DefaultTaxRate)
 		if strings.EqualFold(o.Currency, "USD") {
 			taxRate = money.Zero()
 		}
@@ -236,7 +261,7 @@ func (e *Engine) Reconcile(
 		expectedFee, expectedTax, expectedNet := money.CalculateMDRAndGST(o.GrossAmount, feeRate, taxRate)
 		feeDiff := pg.PGFee.Sub(expectedFee)
 
-		if feeDiff.GreaterThan(e.config.FeeTolerance) {
+		if feeDiff.GreaterThan(activeCfg.FeeTolerance) {
 			mismatch := feeDiff.Abs()
 			disc := domain.Discrepancy{
 				ID:               uuid.New(),
@@ -251,17 +276,18 @@ func (e *Engine) Reconcile(
 				RawEvidence: domain.RawEvidence{
 					Order:        copyOrder(o),
 					PGSettlement: copyPG(pg),
-					ExpectedFormula: fmt.Sprintf("Fee = Gross(%s) * Rate(%s) = %s, Tax = %s, ExpectedNet = %s",
-						o.GrossAmount.StringFixed(4), feeRate.StringFixed(4), expectedFee.StringFixed(4),
+					ExpectedFormula: fmt.Sprintf("Fee = Gross(%s) * Rate(%s%%) = %s, Tax = %s, ExpectedNet = %s",
+						o.GrossAmount.StringFixed(4), feeRate.StringFixed(2), expectedFee.StringFixed(4),
 						expectedTax.StringFixed(4), expectedNet.StringFixed(4)),
-					ActualFormula: fmt.Sprintf("ActualFee = %s, ActualTax = %s, ActualNet = %s (Fee Diff: %s)",
-						pg.PGFee.StringFixed(4), pg.Tax.StringFixed(4), pg.NetAmount.StringFixed(4), mismatch.StringFixed(4)),
+					ActualFormula: fmt.Sprintf("ActualFee = %s, ActualTax = %s, ActualNet = %s (Fee Diff: %s > Tolerance %s)",
+						pg.PGFee.StringFixed(4), pg.Tax.StringFixed(4), pg.NetAmount.StringFixed(4), mismatch.StringFixed(4), activeCfg.FeeTolerance.StringFixed(4)),
 					CalculatedValues: map[string]interface{}{
 						"expected_fee": expectedFee.StringFixed(4),
 						"actual_fee":   pg.PGFee.StringFixed(4),
 						"expected_tax": expectedTax.StringFixed(4),
 						"actual_tax":   pg.Tax.StringFixed(4),
 						"overcharge":   mismatch.StringFixed(4),
+						"tolerance":    activeCfg.FeeTolerance.StringFixed(4),
 					},
 				},
 				Status:     domain.StatusOpen,
@@ -274,7 +300,7 @@ func (e *Engine) Reconcile(
 
 		// Tax calculation error check
 		taxDiff := pg.Tax.Sub(expectedTax).Abs()
-		if taxDiff.GreaterThan(e.config.FeeTolerance) {
+		if taxDiff.GreaterThan(activeCfg.FeeTolerance) {
 			disc := domain.Discrepancy{
 				ID:               uuid.New(),
 				OrderID:          stringPtr(o.OrderID),

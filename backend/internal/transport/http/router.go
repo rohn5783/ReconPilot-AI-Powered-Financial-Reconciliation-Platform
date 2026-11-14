@@ -63,6 +63,13 @@ func NewRouter(cfg *config.Config, reconSvc *service.ReconciliationService, expo
 		v1.GET("/uploads", handler.GetUploadHistory)
 		v1.GET("/uploads/:id", handler.GetUploadRecordByID)
 		v1.GET("/uploads/:id/download", handler.DownloadUploadedFile)
+
+		// Contract Rules & Dynamic Matching Configuration (MDR, GST, Fee Tolerance, Rounding)
+		v1.GET("/contract-rules", handler.GetContractRules)
+		v1.POST("/contract-rules", handler.CreateContractRule)
+		v1.PUT("/contract-rules/:id", handler.UpdateContractRule)
+		v1.POST("/contract-rules/:id/activate", handler.ActivateContractRule)
+		v1.DELETE("/contract-rules/:id", handler.DeleteContractRule)
 	}
 
 	return router

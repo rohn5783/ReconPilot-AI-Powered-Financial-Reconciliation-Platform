@@ -118,4 +118,22 @@ CREATE TABLE IF NOT EXISTS upload_records (
 CREATE INDEX IF NOT EXISTS idx_upload_records_uploaded_at ON upload_records(uploaded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_upload_records_file_type ON upload_records(file_type);
 
+-- 7. Contract Rules & Dynamic Matching Configuration
+CREATE TABLE IF NOT EXISTS contract_rules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(128) NOT NULL,
+    mdr_rate NUMERIC(18, 4) NOT NULL DEFAULT 2.0000,
+    gst_rate NUMERIC(18, 4) NOT NULL DEFAULT 18.0000,
+    fee_tolerance NUMERIC(18, 4) NOT NULL DEFAULT 0.0100,
+    rounding_precision INT NOT NULL DEFAULT 4,
+    rounding_mode VARCHAR(32) NOT NULL DEFAULT 'HALF_EVEN',
+    is_active BOOLEAN NOT NULL DEFAULT false,
+    description TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_contract_rules_active ON contract_rules(is_active);
+
+
 

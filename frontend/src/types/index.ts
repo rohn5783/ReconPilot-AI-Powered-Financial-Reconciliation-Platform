@@ -185,4 +185,18 @@ export interface UploadRecord {
   summary: string;
 }
 
+export interface ContractRule {
+  id: string;
+  name: string;
+  mdr_rate: string;
+  gst_rate: string;
+  fee_tolerance: string;
+  rounding_precision: number;
+  rounding_mode: 'HALF_EVEN' | 'HALF_UP' | 'FLOOR' | 'CEIL' | string;
+  is_active: boolean;
+  description: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 

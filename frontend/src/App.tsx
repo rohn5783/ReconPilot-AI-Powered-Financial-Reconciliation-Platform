@@ -9,6 +9,7 @@ import { PayoutBatchesView } from './components/views/PayoutBatchesView';
 import { DiscrepanciesView } from './components/views/DiscrepanciesView';
 import { UploadView } from './components/views/UploadView';
 import { UploadHistoryView } from './components/views/UploadHistoryView';
+import { ContractRulesView } from './components/views/ContractRulesView';
 import { EvidenceDrawer } from './components/views/EvidenceDrawer';
 import { BottomTelemetryDock } from './components/layout/BottomTelemetryDock';
 import { CommandPalette } from './components/command/CommandPalette';
@@ -54,6 +55,11 @@ export const App: React.FC = () => {
           {activeView === 'discrepancies' && <DiscrepanciesView />}
           {activeView === 'upload' && <UploadView />}
           {activeView === 'history' && <UploadHistoryView />}
+          {activeView === 'rules' && (
+            <div className="flex-1 overflow-y-auto p-6">
+              <ContractRulesView />
+            </div>
+          )}
         </main>
       </div>
 

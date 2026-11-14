@@ -608,6 +608,96 @@ func (h *Handler) DownloadUploadedFile(c *gin.Context) {
 	c.Data(http.StatusOK, "text/csv; charset=utf-8", []byte(record.RawData))
 }
 
+// GetContractRules returns all defined contract rules and matching parameter sets.
+func (h *Handler) GetContractRules(c *gin.Context) {
+	rules, err := h.reconSvc.GetContractRules(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch contract rules", "details": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": rules, "total": len(rules)})
+}
+
+// CreateContractRule adds a new contract rate configuration.
+func (h *Handler) CreateContractRule(c *gin.Context) {
+	var rule domain.ContractRule
+	if err := c.ShouldBindJSON(&rule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid contract rule payload", "details": err.Error()})
+		return
+	}
+
+	if rule.Name == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "contract rule name is required"})
+		return
+	}
+
+	if err := h.reconSvc.CreateContractRule(c.Request.Context(), &rule); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create contract rule", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, rule)
+}
+
+// UpdateContractRule updates an existing contract rule.
+func (h *Handler) UpdateContractRule(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid contract rule id format"})
+		return
+	}
+
+	var rule domain.ContractRule
+	if err := c.ShouldBindJSON(&rule); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid contract rule payload", "details": err.Error()})
+		return
+	}
+
+	rule.ID = id
+	if err := h.reconSvc.UpdateContractRule(c.Request.Context(), &rule); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update contract rule", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, rule)
+}
+
+// ActivateContractRule activates a specific contract rule and updates matching parameters.
+func (h *Handler) ActivateContractRule(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid contract rule id format"})
+		return
+	}
+
+	rule, err := h.reconSvc.ActivateContractRule(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to activate contract rule", "details": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "activated", "rule": rule})
+}
+
+// DeleteContractRule deletes an inactive contract rule.
+func (h *Handler) DeleteContractRule(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid contract rule id format"})
+		return
+	}
+
+	if err := h.reconSvc.DeleteContractRule(c.Request.Context(), id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"status": "deleted", "id": id})
+}
+
 // ReadFullBody reads io.Reader safely
 func readFull(r io.Reader) []byte {
 	b, _ := io.ReadAll(r)

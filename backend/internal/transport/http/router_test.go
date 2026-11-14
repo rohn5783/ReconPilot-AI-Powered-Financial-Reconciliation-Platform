@@ -259,3 +259,52 @@ func TestUploadHistoryAndDownloadAPI(t *testing.T) {
 		t.Errorf("Expected non-empty downloaded file content")
 	}
 }
+
+func TestContractRulesCRUD(t *testing.T) {
+	handler, cfg := setupTestRouter(t)
+
+	// 1. Fetch initial contract rules
+	reqGet, _ := http.NewRequest(http.MethodGet, "/api/v1/contract-rules", nil)
+	reqGet.Header.Set("X-API-Key", cfg.Auth.APIKey)
+	wGet := httptest.NewRecorder()
+	(*handler).ServeHTTP(wGet, reqGet)
+
+	if wGet.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for GET /contract-rules, got %d", wGet.Code)
+	}
+
+	// 2. Create custom rule
+	newRulePayload := `{"name":"Custom Razorpay High-Vol Contract","mdr_rate":"1.7500","gst_rate":"18.0000","fee_tolerance":"0.0500","rounding_precision":2,"rounding_mode":"HALF_UP","is_active":true,"description":"Tier 1 corporate volume contract"}`
+	reqPost, _ := http.NewRequest(http.MethodPost, "/api/v1/contract-rules", strings.NewReader(newRulePayload))
+	reqPost.Header.Set("Content-Type", "application/json")
+	reqPost.Header.Set("X-API-Key", cfg.Auth.APIKey)
+	wPost := httptest.NewRecorder()
+	(*handler).ServeHTTP(wPost, reqPost)
+
+	if wPost.Code != http.StatusCreated {
+		t.Fatalf("Expected 201 for POST /contract-rules, got %d: %s", wPost.Code, wPost.Body.String())
+	}
+
+	var created domain.ContractRule
+	if err := json.Unmarshal(wPost.Body.Bytes(), &created); err != nil {
+		t.Fatalf("Failed to parse created rule: %v", err)
+	}
+	if created.Name != "Custom Razorpay High-Vol Contract" {
+		t.Errorf("Expected name 'Custom Razorpay High-Vol Contract', got %s", created.Name)
+	}
+	if !created.IsActive {
+		t.Errorf("Expected rule to be active")
+	}
+
+	// 3. Edit / Update rule
+	updatePayload := `{"name":"Custom Razorpay High-Vol Contract (Edited)","mdr_rate":"1.8000","gst_rate":"18.0000","fee_tolerance":"0.0200","rounding_precision":4,"rounding_mode":"HALF_EVEN","is_active":true}`
+	reqPut, _ := http.NewRequest(http.MethodPut, fmt.Sprintf("/api/v1/contract-rules/%s", created.ID), strings.NewReader(updatePayload))
+	reqPut.Header.Set("Content-Type", "application/json")
+	reqPut.Header.Set("X-API-Key", cfg.Auth.APIKey)
+	wPut := httptest.NewRecorder()
+	(*handler).ServeHTTP(wPut, reqPut)
+
+	if wPut.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for PUT /contract-rules/:id, got %d: %s", wPut.Code, wPut.Body.String())
+	}
+}

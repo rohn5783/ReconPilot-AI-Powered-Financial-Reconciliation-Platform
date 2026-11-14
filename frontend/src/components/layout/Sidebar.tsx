@@ -19,7 +19,20 @@ export const Sidebar: React.FC = () => {
     discrepancies,
     payoutBatches,
     uploadHistory,
+    contractRules,
   } = useReconStore();
+
+  const activeRule = React.useMemo(() => {
+    return (contractRules || []).find((r) => r.is_active) || null;
+  }, [contractRules]);
+
+  const formatRate = (rateStr?: string) => {
+    if (!rateStr) return '2.00%';
+    const val = parseFloat(rateStr);
+    if (isNaN(val)) return '2.00%';
+    if (val < 1 && val > 0) return `${(val * 100).toFixed(2)}%`;
+    return `${val.toFixed(2)}%`;
+  };
 
   const navItems: Array<{
     id: WorkstationView;
@@ -48,6 +61,13 @@ export const Sidebar: React.FC = () => {
       icon: <AlertTriangle className="w-4 h-4" />,
       badge: (discrepancies || []).length,
       badgeColor: 'bg-recon-crimson/20 text-recon-crimson border border-recon-crimson/30',
+    },
+    {
+      id: 'rules',
+      label: 'Contract Rules & MDR',
+      icon: <Scale className="w-4 h-4" />,
+      badge: (contractRules || []).length > 0 ? (contractRules || []).length : undefined,
+      badgeColor: 'bg-ledger-800 text-recon-emerald border border-recon-emerald/30',
     },
     {
       id: 'upload',
@@ -105,27 +125,41 @@ export const Sidebar: React.FC = () => {
 
       {/* Contract Invariants & Engine Parameters Widget */}
       <div className="p-3 border-t border-ledger-700 bg-ledger-900/50 space-y-2.5 text-[11px] font-mono">
-        <div className="flex items-center gap-2 text-ledger-400">
-          <Scale className="w-3.5 h-3.5 text-ledger-400" />
-          <span className="uppercase tracking-wider text-[10px]">Contract Invariants</span>
+        <div className="flex items-center justify-between text-ledger-400">
+          <div className="flex items-center gap-2">
+            <Scale className="w-3.5 h-3.5 text-ledger-400" />
+            <span className="uppercase tracking-wider text-[10px]">Active Contract</span>
+          </div>
+          <button
+            onClick={() => setActiveView('rules')}
+            className="text-[10px] text-recon-indigo hover:text-white transition"
+          >
+            Edit
+          </button>
         </div>
 
-        <div className="bg-ledger-850 rounded p-2 border border-ledger-700 space-y-1.5 text-ledger-300 text-[10px]">
+        <div
+          onClick={() => setActiveView('rules')}
+          className="bg-ledger-850 hover:bg-ledger-800 cursor-pointer transition rounded p-2 border border-ledger-700 space-y-1.5 text-ledger-300 text-[10px]"
+          title="Click to view and configure contract rules"
+        >
           <div className="flex justify-between items-center">
             <span className="text-ledger-400">Agreed MDR:</span>
-            <span className="text-white font-semibold">2.00%</span>
+            <span className="text-white font-semibold">{formatRate(activeRule?.mdr_rate)}</span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-ledger-400">Statutory GST:</span>
-            <span className="text-white font-semibold">18.00%</span>
+            <span className="text-white font-semibold">{formatRate(activeRule?.gst_rate)}</span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-ledger-400">Fee Tolerance:</span>
-            <span className="text-recon-emerald font-semibold">±₹0.0100</span>
+            <span className="text-recon-emerald font-semibold">
+              ±₹{activeRule ? activeRule.fee_tolerance : '0.0100'}
+            </span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-ledger-400">Rounding:</span>
-            <span className="text-white">Half-Even</span>
+            <span className="text-white">{activeRule ? activeRule.rounding_mode : 'Half-Even'}</span>
           </div>
         </div>
 

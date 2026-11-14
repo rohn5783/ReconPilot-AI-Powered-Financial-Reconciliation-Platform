@@ -11,6 +11,7 @@ import {
   LoginPayload,
   AuthResponse,
   UploadRecord,
+  ContractRule,
 } from '../types';
 
 export const LIVE_BACKEND_URL = 'https://reconpilot-backend-latest.onrender.com';
@@ -236,6 +237,49 @@ export const apiClient = {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  },
+
+  async getContractRules(): Promise<{ data: ContractRule[]; total: number }> {
+    const res = await fetch(`${API_BASE}/contract-rules`, { headers: getHeaders() });
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
+    return res.json();
+  },
+
+  async createContractRule(payload: Partial<ContractRule>): Promise<ContractRule> {
+    const res = await fetch(`${API_BASE}/contract-rules`, {
+      method: 'POST',
+      headers: getHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
+    return res.json();
+  },
+
+  async updateContractRule(id: string, payload: Partial<ContractRule>): Promise<ContractRule> {
+    const res = await fetch(`${API_BASE}/contract-rules/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: getHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
+    return res.json();
+  },
+
+  async activateContractRule(id: string): Promise<{ status: string; rule: ContractRule }> {
+    const res = await fetch(`${API_BASE}/contract-rules/${encodeURIComponent(id)}/activate`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
+    return res.json();
+  },
+
+  async deleteContractRule(id: string): Promise<void> {
+    const res = await fetch(`${API_BASE}/contract-rules/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    });
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
   },
 
   exportReport(format: 'csv' | 'json', target: 'traces' | 'discrepancies' = 'traces'): void {
