@@ -390,3 +390,18 @@ func (s *ReconciliationService) LastResult() *matching.ReconciliationResult {
 	defer s.mu.RUnlock()
 	return s.lastResult
 }
+
+// RecordUpload records an uploaded file audit entry into storage.
+func (s *ReconciliationService) RecordUpload(ctx context.Context, record *domain.UploadRecord) error {
+	return s.repo.Uploads().Create(ctx, record)
+}
+
+// GetUploads retrieves all historical upload and ingestion records.
+func (s *ReconciliationService) GetUploads(ctx context.Context) ([]domain.UploadRecord, error) {
+	return s.repo.Uploads().FindAll(ctx)
+}
+
+// GetUploadByID retrieves a single upload record by ID.
+func (s *ReconciliationService) GetUploadByID(ctx context.Context, id uuid.UUID) (*domain.UploadRecord, error) {
+	return s.repo.Uploads().FindByID(ctx, id)
+}

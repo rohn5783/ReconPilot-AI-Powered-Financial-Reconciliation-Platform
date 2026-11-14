@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -21,6 +22,7 @@ type MockRepository struct {
 	bank          *MockBankRepo
 	discrepancies *MockDiscrepancyRepo
 	users         *MockUserRepo
+	uploads       *MockUploadRepo
 }
 
 // NewMockRepository constructs a clean, empty in-memory repository.
@@ -33,6 +35,7 @@ func NewMockRepository(seedData bool) *MockRepository {
 		usersByMail: make(map[string]*domain.User),
 		usersByID:   make(map[uuid.UUID]*domain.User),
 	}
+	uploads := &MockUploadRepo{records: make(map[uuid.UUID]domain.UploadRecord)}
 
 	repo := &MockRepository{
 		orders:        orders,
@@ -40,6 +43,7 @@ func NewMockRepository(seedData bool) *MockRepository {
 		bank:          bank,
 		discrepancies: discrepancies,
 		users:         users,
+		uploads:       uploads,
 	}
 
 	return repo
@@ -50,6 +54,7 @@ func (r *MockRepository) PG() PGRepository                     { return r.pg }
 func (r *MockRepository) Bank() BankRepository                 { return r.bank }
 func (r *MockRepository) Discrepancies() DiscrepancyRepository { return r.discrepancies }
 func (r *MockRepository) Users() UserRepository                 { return r.users }
+func (r *MockRepository) Uploads() UploadRepository             { return r.uploads }
 
 func (r *MockRepository) ResetAll(ctx context.Context) error {
 	r.mu.Lock()
@@ -59,6 +64,7 @@ func (r *MockRepository) ResetAll(ctx context.Context) error {
 	_ = r.pg.Clear(ctx)
 	_ = r.bank.Clear(ctx)
 	_ = r.discrepancies.Clear(ctx)
+	_ = r.uploads.Clear(ctx)
 	return nil
 }
 
@@ -431,4 +437,62 @@ func (r *MockUserRepo) Count(ctx context.Context) (int64, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return int64(len(r.usersByID)), nil
+}
+
+// MockUploadRepo provides thread-safe in-memory upload audit logging.
+type MockUploadRepo struct {
+	mu      sync.RWMutex
+	records map[uuid.UUID]domain.UploadRecord
+}
+
+func (r *MockUploadRepo) Create(ctx context.Context, record *domain.UploadRecord) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if record.ID == uuid.Nil {
+		record.ID = uuid.New()
+	}
+	if record.UploadedAt.IsZero() {
+		record.UploadedAt = time.Now().UTC()
+	}
+	if record.Status == "" {
+		record.Status = "SUCCESS"
+	}
+	if record.UploadedBy == "" {
+		record.UploadedBy = "System Operator"
+	}
+	r.records[record.ID] = *record
+	return nil
+}
+
+func (r *MockUploadRepo) FindAll(ctx context.Context) ([]domain.UploadRecord, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	res := make([]domain.UploadRecord, 0, len(r.records))
+	for _, rec := range r.records {
+		res = append(res, rec)
+	}
+	sort.Slice(res, func(i, j int) bool {
+		return res[i].UploadedAt.After(res[j].UploadedAt)
+	})
+	return res, nil
+}
+
+func (r *MockUploadRepo) FindByID(ctx context.Context, id uuid.UUID) (*domain.UploadRecord, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	rec, ok := r.records[id]
+	if !ok {
+		return nil, nil
+	}
+	return &rec, nil
+}
+
+func (r *MockUploadRepo) Clear(ctx context.Context) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.records = make(map[uuid.UUID]domain.UploadRecord)
+	return nil
 }

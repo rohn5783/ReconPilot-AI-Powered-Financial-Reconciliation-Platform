@@ -22,6 +22,7 @@ type PostgresRepository struct {
 	bank          *PostgresBankRepo
 	discrepancies *PostgresDiscrepancyRepo
 	users         *PostgresUserRepo
+	uploads       *PostgresUploadRepo
 }
 
 // NewPostgresRepository initializes a connection pool and returns a PostgresRepository.
@@ -53,6 +54,7 @@ func NewPostgresRepository(ctx context.Context, databaseURL string) (*PostgresRe
 		bank:          &PostgresBankRepo{pool: pool},
 		discrepancies: &PostgresDiscrepancyRepo{pool: pool},
 		users:         &PostgresUserRepo{pool: pool},
+		uploads:       &PostgresUploadRepo{pool: pool},
 	}
 
 	if err := repo.AutoMigrate(ctx); err != nil {
@@ -158,6 +160,22 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+
+CREATE TABLE IF NOT EXISTS upload_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    file_type VARCHAR(64) NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_size BIGINT NOT NULL DEFAULT 0,
+    record_count INT NOT NULL DEFAULT 0,
+    uploaded_by VARCHAR(255) NOT NULL DEFAULT 'System Operator',
+    raw_data TEXT NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'SUCCESS',
+    summary TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_upload_records_uploaded_at ON upload_records(uploaded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_upload_records_file_type ON upload_records(file_type);
 `
 
 func (r *PostgresRepository) Orders() OrderRepository             { return r.orders }
@@ -165,6 +183,7 @@ func (r *PostgresRepository) PG() PGRepository                     { return r.pg
 func (r *PostgresRepository) Bank() BankRepository                 { return r.bank }
 func (r *PostgresRepository) Discrepancies() DiscrepancyRepository { return r.discrepancies }
 func (r *PostgresRepository) Users() UserRepository                 { return r.users }
+func (r *PostgresRepository) Uploads() UploadRepository             { return r.uploads }
 
 func (r *PostgresRepository) ResetAll(ctx context.Context) error {
 	queries := []string{
@@ -172,6 +191,7 @@ func (r *PostgresRepository) ResetAll(ctx context.Context) error {
 		"TRUNCATE TABLE bank_statements CASCADE;",
 		"TRUNCATE TABLE pg_settlements CASCADE;",
 		"TRUNCATE TABLE orders CASCADE;",
+		"TRUNCATE TABLE upload_records CASCADE;",
 	}
 	for _, q := range queries {
 		if _, err := r.pool.Exec(ctx, q); err != nil {
@@ -923,4 +943,84 @@ func (r *PostgresUserRepo) Count(ctx context.Context) (int64, error) {
 	var count int64
 	err := r.pool.QueryRow(ctx, "SELECT COUNT(*) FROM users;").Scan(&count)
 	return count, err
+}
+
+// PostgresUploadRepo provides PostgreSQL persistence for data upload and ingestion audit records.
+type PostgresUploadRepo struct {
+	pool *pgxpool.Pool
+}
+
+func (r *PostgresUploadRepo) Create(ctx context.Context, u *domain.UploadRecord) error {
+	if u.ID == uuid.Nil {
+		u.ID = uuid.New()
+	}
+	if u.UploadedAt.IsZero() {
+		u.UploadedAt = time.Now().UTC()
+	}
+	if u.Status == "" {
+		u.Status = "SUCCESS"
+	}
+	if u.UploadedBy == "" {
+		u.UploadedBy = "System Operator"
+	}
+
+	query := `
+		INSERT INTO upload_records (id, uploaded_at, file_type, file_name, file_size, record_count, uploaded_by, raw_data, status, summary)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);
+	`
+	_, err := r.pool.Exec(ctx, query, u.ID, u.UploadedAt, u.FileType, u.FileName, u.FileSize, u.RecordCount, u.UploadedBy, u.RawData, u.Status, u.Summary)
+	if err != nil {
+		return fmt.Errorf("insert upload record: %w", err)
+	}
+	return nil
+}
+
+func (r *PostgresUploadRepo) FindAll(ctx context.Context) ([]domain.UploadRecord, error) {
+	query := `
+		SELECT id, uploaded_at, file_type, file_name, file_size, record_count, uploaded_by, raw_data, status, summary
+		FROM upload_records
+		ORDER BY uploaded_at DESC;
+	`
+	rows, err := r.pool.Query(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("query upload records: %w", err)
+	}
+	defer rows.Close()
+
+	var records []domain.UploadRecord
+	for rows.Next() {
+		var u domain.UploadRecord
+		if err := rows.Scan(&u.ID, &u.UploadedAt, &u.FileType, &u.FileName, &u.FileSize, &u.RecordCount, &u.UploadedBy, &u.RawData, &u.Status, &u.Summary); err != nil {
+			return nil, fmt.Errorf("scan upload record: %w", err)
+		}
+		records = append(records, u)
+	}
+	if records == nil {
+		records = []domain.UploadRecord{}
+	}
+	return records, rows.Err()
+}
+
+func (r *PostgresUploadRepo) FindByID(ctx context.Context, id uuid.UUID) (*domain.UploadRecord, error) {
+	query := `
+		SELECT id, uploaded_at, file_type, file_name, file_size, record_count, uploaded_by, raw_data, status, summary
+		FROM upload_records
+		WHERE id = $1;
+	`
+	var u domain.UploadRecord
+	err := r.pool.QueryRow(ctx, query, id).Scan(
+		&u.ID, &u.UploadedAt, &u.FileType, &u.FileName, &u.FileSize, &u.RecordCount, &u.UploadedBy, &u.RawData, &u.Status, &u.Summary,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("find upload record by id: %w", err)
+	}
+	return &u, nil
+}
+
+func (r *PostgresUploadRepo) Clear(ctx context.Context) error {
+	_, err := r.pool.Exec(ctx, "TRUNCATE TABLE upload_records CASCADE;")
+	return err
 }

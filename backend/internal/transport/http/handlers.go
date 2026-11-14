@@ -1,6 +1,7 @@
 package http
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -308,17 +309,41 @@ func (h *Handler) TriggerReconciliation(c *gin.Context) {
 	var customPG []domain.PGSettlement
 	var customBank []domain.BankStatement
 
+	uploader := "System Operator"
+	if email, exists := c.Get("user_email"); exists {
+		if eStr, ok := email.(string); ok && eStr != "" {
+			uploader = eStr
+		}
+	} else if name, exists := c.Get("user_full_name"); exists {
+		if nStr, ok := name.(string); ok && nStr != "" {
+			uploader = nStr
+		}
+	}
+
 	// 1. Check for orders file
 	if fileHeader, err := c.FormFile("orders_file"); err == nil {
 		file, err := fileHeader.Open()
 		if err == nil {
 			defer file.Close()
-			parsed, err := ingestion.ParseOrdersCSV(file, false)
+			rawBytes, _ := io.ReadAll(file)
+			parsed, err := ingestion.ParseOrdersCSV(bytes.NewReader(rawBytes), false)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse orders_file CSV", "details": err.Error()})
 				return
 			}
 			customOrders = parsed
+			_ = h.reconSvc.RecordUpload(c.Request.Context(), &domain.UploadRecord{
+				ID:          uuid.New(),
+				UploadedAt:  time.Now().UTC(),
+				FileType:    "ORDERS",
+				FileName:    fileHeader.Filename,
+				FileSize:    fileHeader.Size,
+				RecordCount: len(parsed),
+				UploadedBy:  uploader,
+				RawData:     string(rawBytes),
+				Status:      "SUCCESS",
+				Summary:     fmt.Sprintf("%d Internal Merchant Orders ingested", len(parsed)),
+			})
 		}
 	}
 
@@ -327,12 +352,25 @@ func (h *Handler) TriggerReconciliation(c *gin.Context) {
 		file, err := fileHeader.Open()
 		if err == nil {
 			defer file.Close()
-			parsed, err := ingestion.ParsePGSettlementsCSV(file, false)
+			rawBytes, _ := io.ReadAll(file)
+			parsed, err := ingestion.ParsePGSettlementsCSV(bytes.NewReader(rawBytes), false)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse pg_file CSV", "details": err.Error()})
 				return
 			}
 			customPG = parsed
+			_ = h.reconSvc.RecordUpload(c.Request.Context(), &domain.UploadRecord{
+				ID:          uuid.New(),
+				UploadedAt:  time.Now().UTC(),
+				FileType:    "PG_SETTLEMENTS",
+				FileName:    fileHeader.Filename,
+				FileSize:    fileHeader.Size,
+				RecordCount: len(parsed),
+				UploadedBy:  uploader,
+				RawData:     string(rawBytes),
+				Status:      "SUCCESS",
+				Summary:     fmt.Sprintf("%d Payment Gateway Settlements ingested", len(parsed)),
+			})
 		}
 	}
 
@@ -341,12 +379,25 @@ func (h *Handler) TriggerReconciliation(c *gin.Context) {
 		file, err := fileHeader.Open()
 		if err == nil {
 			defer file.Close()
-			parsed, err := ingestion.ParseBankStatementsCSV(file, false)
+			rawBytes, _ := io.ReadAll(file)
+			parsed, err := ingestion.ParseBankStatementsCSV(bytes.NewReader(rawBytes), false)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "failed to parse bank_file CSV", "details": err.Error()})
 				return
 			}
 			customBank = parsed
+			_ = h.reconSvc.RecordUpload(c.Request.Context(), &domain.UploadRecord{
+				ID:          uuid.New(),
+				UploadedAt:  time.Now().UTC(),
+				FileType:    "BANK_STATEMENTS",
+				FileName:    fileHeader.Filename,
+				FileSize:    fileHeader.Size,
+				RecordCount: len(parsed),
+				UploadedBy:  uploader,
+				RawData:     string(rawBytes),
+				Status:      "SUCCESS",
+				Summary:     fmt.Sprintf("%d Bank Statement UTR Remittances ingested", len(parsed)),
+			})
 		}
 	}
 
@@ -488,6 +539,73 @@ func (h *Handler) ExportReport(c *gin.Context) {
 
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
 	c.Data(http.StatusOK, "text/csv", data)
+}
+
+// GetUploadHistory returns all historical data uploads and ingestion records.
+func (h *Handler) GetUploadHistory(c *gin.Context) {
+	records, err := h.reconSvc.GetUploads(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch upload records", "details": err.Error()})
+		return
+	}
+	if records == nil {
+		records = []domain.UploadRecord{}
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"data":  records,
+		"total": len(records),
+	})
+}
+
+// GetUploadRecordByID returns a single upload audit record.
+func (h *Handler) GetUploadRecordByID(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid upload record uuid format"})
+		return
+	}
+
+	record, err := h.reconSvc.GetUploadByID(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch upload record", "details": err.Error()})
+		return
+	}
+	if record == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "upload record not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, record)
+}
+
+// DownloadUploadedFile streams the original CSV payload with standard attachment download headers.
+func (h *Handler) DownloadUploadedFile(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := uuid.Parse(idStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid upload record uuid format"})
+		return
+	}
+
+	record, err := h.reconSvc.GetUploadByID(c.Request.Context(), id)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch upload record", "details": err.Error()})
+		return
+	}
+	if record == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "upload record not found"})
+		return
+	}
+
+	fileName := record.FileName
+	if !strings.HasSuffix(strings.ToLower(fileName), ".csv") {
+		fileName += ".csv"
+	}
+
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%q", fileName))
+	c.Header("Content-Type", "text/csv; charset=utf-8")
+	c.Data(http.StatusOK, "text/csv; charset=utf-8", []byte(record.RawData))
 }
 
 // ReadFullBody reads io.Reader safely

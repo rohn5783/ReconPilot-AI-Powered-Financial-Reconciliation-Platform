@@ -70,6 +70,14 @@ type UserRepository interface {
 	Count(ctx context.Context) (int64, error)
 }
 
+// UploadRepository handles audit logging, storage and retrieval of ingested files.
+type UploadRepository interface {
+	Create(ctx context.Context, record *domain.UploadRecord) error
+	FindAll(ctx context.Context) ([]domain.UploadRecord, error)
+	FindByID(ctx context.Context, id uuid.UUID) (*domain.UploadRecord, error)
+	Clear(ctx context.Context) error
+}
+
 // ReconciliationRepository aggregates all storage entities into a unified interface.
 type ReconciliationRepository interface {
 	Orders() OrderRepository
@@ -77,6 +85,7 @@ type ReconciliationRepository interface {
 	Bank() BankRepository
 	Discrepancies() DiscrepancyRepository
 	Users() UserRepository
+	Uploads() UploadRepository
 	ResetAll(ctx context.Context) error
 	Close() error
 }

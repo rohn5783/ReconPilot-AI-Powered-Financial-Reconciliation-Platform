@@ -7,6 +7,7 @@ import {
   Cpu,
   ShieldCheck,
   Scale,
+  History,
 } from 'lucide-react';
 import { useReconStore, WorkstationView } from '../../store/useReconStore';
 
@@ -17,6 +18,7 @@ export const Sidebar: React.FC = () => {
     summary,
     discrepancies,
     payoutBatches,
+    uploadHistory,
   } = useReconStore();
 
   const navItems: Array<{
@@ -51,6 +53,13 @@ export const Sidebar: React.FC = () => {
       id: 'upload',
       label: 'Streaming Ingestion',
       icon: <UploadCloud className="w-4 h-4" />,
+    },
+    {
+      id: 'history',
+      label: 'Upload History & Archive',
+      icon: <History className="w-4 h-4" />,
+      badge: (uploadHistory || []).length > 0 ? (uploadHistory || []).length : undefined,
+      badgeColor: 'bg-ledger-800 text-indigo-400 border border-indigo-500/20',
     },
   ];
 

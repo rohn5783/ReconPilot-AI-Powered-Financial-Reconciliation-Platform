@@ -265,3 +265,17 @@ type AuthResponse struct {
 	User  UserPublic `json:"user"`
 }
 
+// UploadRecord tracks file uploads, batch ingestion events, date/time, and original raw payloads for audit and retrieval.
+type UploadRecord struct {
+	ID          uuid.UUID `json:"id" db:"id"`
+	UploadedAt  time.Time `json:"uploaded_at" db:"uploaded_at"`
+	FileType    string    `json:"file_type" db:"file_type"` // "ORDERS", "PG_SETTLEMENTS", "BANK_STATEMENTS", "DEMO_SEED"
+	FileName    string    `json:"file_name" db:"file_name"`
+	FileSize    int64     `json:"file_size" db:"file_size"`
+	RecordCount int       `json:"record_count" db:"record_count"`
+	UploadedBy  string    `json:"uploaded_by" db:"uploaded_by"`
+	RawData     string    `json:"raw_data,omitempty" db:"raw_data"`
+	Status      string    `json:"status" db:"status"`
+	Summary     string    `json:"summary" db:"summary"`
+}
+

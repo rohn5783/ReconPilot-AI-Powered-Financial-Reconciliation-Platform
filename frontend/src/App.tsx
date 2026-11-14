@@ -8,6 +8,7 @@ import { ThreeWayExplorerView } from './components/views/ThreeWayExplorerView';
 import { PayoutBatchesView } from './components/views/PayoutBatchesView';
 import { DiscrepanciesView } from './components/views/DiscrepanciesView';
 import { UploadView } from './components/views/UploadView';
+import { UploadHistoryView } from './components/views/UploadHistoryView';
 import { EvidenceDrawer } from './components/views/EvidenceDrawer';
 import { BottomTelemetryDock } from './components/layout/BottomTelemetryDock';
 import { CommandPalette } from './components/command/CommandPalette';
@@ -52,6 +53,7 @@ export const App: React.FC = () => {
           {activeView === 'batches' && <PayoutBatchesView />}
           {activeView === 'discrepancies' && <DiscrepanciesView />}
           {activeView === 'upload' && <UploadView />}
+          {activeView === 'history' && <UploadHistoryView />}
         </main>
       </div>
 

@@ -10,6 +10,7 @@ import {
   RegisterPayload,
   LoginPayload,
   AuthResponse,
+  UploadRecord,
 } from '../types';
 
 export const LIVE_BACKEND_URL = 'https://reconpilot-backend-latest.onrender.com';
@@ -209,6 +210,32 @@ export const apiClient = {
 
   logout(): void {
     setAuthToken(null);
+  },
+
+  async getUploadHistory(): Promise<{ data: UploadRecord[]; total: number }> {
+    const res = await fetch(`${API_BASE}/uploads`, { headers: getHeaders() });
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
+    return res.json();
+  },
+
+  async getUploadRecord(id: string): Promise<UploadRecord> {
+    const res = await fetch(`${API_BASE}/uploads/${encodeURIComponent(id)}`, { headers: getHeaders() });
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
+    return res.json();
+  },
+
+  downloadUploadedFile(id: string, fileName: string): void {
+    const token = getAuthToken();
+    const key = getApiKey();
+    const tokenParam = token ? `api_key=${encodeURIComponent(token)}` : (key ? `api_key=${encodeURIComponent(key)}` : '');
+    const query = tokenParam ? `?${tokenParam}` : '';
+    const url = `${API_BASE}/uploads/${encodeURIComponent(id)}/download${query}`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   },
 
   exportReport(format: 'csv' | 'json', target: 'traces' | 'discrepancies' = 'traces'): void {

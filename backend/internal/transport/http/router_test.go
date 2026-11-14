@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -204,5 +205,57 @@ func TestAuthRegistrationAndLogin(t *testing.T) {
 
 	if wBad.Code != http.StatusUnauthorized {
 		t.Errorf("Expected 401 Unauthorized for bad password, got %d", wBad.Code)
+	}
+}
+
+func TestUploadHistoryAndDownloadAPI(t *testing.T) {
+	handler, cfg := setupTestRouter(t)
+
+	// 1. Seed demo dataset (creates upload records)
+	reqSeed, _ := http.NewRequest(http.MethodPost, "/api/v1/seed", nil)
+	reqSeed.Header.Set("X-API-Key", cfg.Auth.APIKey)
+	wSeed := httptest.NewRecorder()
+	(*handler).ServeHTTP(wSeed, reqSeed)
+
+	if wSeed.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for seed data, got %d: %s", wSeed.Code, wSeed.Body.String())
+	}
+
+	// 2. Fetch upload history
+	reqUploads, _ := http.NewRequest(http.MethodGet, "/api/v1/uploads", nil)
+	reqUploads.Header.Set("X-API-Key", cfg.Auth.APIKey)
+	wUploads := httptest.NewRecorder()
+	(*handler).ServeHTTP(wUploads, reqUploads)
+
+	if wUploads.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for /api/v1/uploads, got %d", wUploads.Code)
+	}
+
+	var res struct {
+		Data  []domain.UploadRecord `json:"data"`
+		Total int                   `json:"total"`
+	}
+	if err := json.Unmarshal(wUploads.Body.Bytes(), &res); err != nil {
+		t.Fatalf("Failed to parse uploads response: %v", err)
+	}
+	if len(res.Data) < 3 {
+		t.Fatalf("Expected at least 3 uploaded files in history, got %d", len(res.Data))
+	}
+
+	// 3. Download the first uploaded file
+	firstRecord := res.Data[0]
+	reqDownload, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("/api/v1/uploads/%s/download", firstRecord.ID), nil)
+	reqDownload.Header.Set("X-API-Key", cfg.Auth.APIKey)
+	wDownload := httptest.NewRecorder()
+	(*handler).ServeHTTP(wDownload, reqDownload)
+
+	if wDownload.Code != http.StatusOK {
+		t.Fatalf("Expected 200 for download, got %d", wDownload.Code)
+	}
+	if !strings.Contains(wDownload.Header().Get("Content-Type"), "text/csv") {
+		t.Errorf("Expected text/csv content type, got %s", wDownload.Header().Get("Content-Type"))
+	}
+	if len(wDownload.Body.Bytes()) == 0 {
+		t.Errorf("Expected non-empty downloaded file content")
 	}
 }

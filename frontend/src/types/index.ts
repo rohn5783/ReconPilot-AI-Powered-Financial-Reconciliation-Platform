@@ -172,4 +172,17 @@ export interface AuthResponse {
   user: UserProfile;
 }
 
+export interface UploadRecord {
+  id: string;
+  uploaded_at: string;
+  file_type: 'ORDERS' | 'PG_SETTLEMENTS' | 'BANK_STATEMENTS' | 'DEMO_SEED' | string;
+  file_name: string;
+  file_size: number;
+  record_count: number;
+  uploaded_by: string;
+  raw_data?: string;
+  status: 'SUCCESS' | 'FAILED' | string;
+  summary: string;
+}
+
 

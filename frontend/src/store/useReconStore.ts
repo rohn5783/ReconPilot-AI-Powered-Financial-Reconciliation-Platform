@@ -9,10 +9,11 @@ import {
   UserProfile,
   RegisterPayload,
   LoginPayload,
+  UploadRecord,
 } from '../types';
 import { apiClient, getApiKey, setApiKey, getAuthToken } from '../api/client';
 
-export type WorkstationView = 'explorer' | 'batches' | 'discrepancies' | 'upload';
+export type WorkstationView = 'explorer' | 'batches' | 'discrepancies' | 'upload' | 'history';
 
 interface ReconState {
   summary: ReconciliationSummary | null;
@@ -22,6 +23,10 @@ interface ReconState {
   discrepancies: Discrepancy[];
   selectedDiscrepancy: Discrepancy | null;
   activeView: WorkstationView;
+
+  // Upload History & Audit Ingestion State
+  uploadHistory: UploadRecord[];
+  isLoadingUploads: boolean;
 
   // Authentication State
   currentUser: UserProfile | null;
@@ -76,6 +81,10 @@ interface ReconState {
   setLastError: (err: string | null) => void;
   saveApiKey: (key: string) => void;
 
+  // Upload History Actions
+  fetchUploadHistory: () => Promise<void>;
+  downloadUploadFile: (id: string, fileName: string) => void;
+
   // Authentication Actions
   openAuthModal: (tab?: 'login' | 'register') => void;
   closeAuthModal: () => void;
@@ -93,6 +102,10 @@ export const useReconStore = create<ReconState>((set, get) => ({
   discrepancies: [],
   selectedDiscrepancy: null,
   activeView: 'explorer',
+
+  // Upload History & Audit Ingestion State
+  uploadHistory: [],
+  isLoadingUploads: false,
 
   // Authentication State
   currentUser: null,
@@ -173,6 +186,7 @@ export const useReconStore = create<ReconState>((set, get) => ({
       get().fetchTraces(),
       get().fetchPayoutBatches(),
       get().fetchDiscrepancies(),
+      get().fetchUploadHistory(),
     ]);
     set({ isLoading: false });
   },
@@ -268,6 +282,7 @@ export const useReconStore = create<ReconState>((set, get) => ({
         tracesTotal: 0,
         payoutBatches: [],
         discrepancies: [],
+        uploadHistory: [],
         selectedDiscrepancy: null,
         currentProgress: 100,
         currentStage: 'COMPLETED',
@@ -355,6 +370,21 @@ export const useReconStore = create<ReconState>((set, get) => ({
     setApiKey(key);
     set({ apiKey: key, lastError: null });
     get().fetchAllData();
+  },
+
+  fetchUploadHistory: async () => {
+    set({ isLoadingUploads: true });
+    try {
+      const res = await apiClient.getUploadHistory();
+      set({ uploadHistory: res?.data || [], isLoadingUploads: false });
+    } catch (err: any) {
+      console.error('Failed to fetch upload history:', err);
+      set({ isLoadingUploads: false });
+    }
+  },
+
+  downloadUploadFile: (id: string, fileName: string) => {
+    apiClient.downloadUploadedFile(id, fileName);
   },
 
   openAuthModal: (tab = 'login') => set({ isAuthModalOpen: true, authModalTab: tab, authError: null }),

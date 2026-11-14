@@ -3,7 +3,10 @@ package seed
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 
 	"reconpilot/internal/domain"
 	"reconpilot/internal/repository"
@@ -411,6 +414,36 @@ func BuildRealisticDataset() Dataset {
 	}
 }
 
+// GenerateDatasetCSVs produces raw CSV string formats for Orders, PG settlements, and Bank statements.
+func GenerateDatasetCSVs(dataset Dataset) (string, string, string) {
+	// Orders CSV
+	var ordersBuf strings.Builder
+	ordersBuf.WriteString("order_id,customer_id,gross_amount,currency,order_status,created_at\n")
+	for _, o := range dataset.Orders {
+		ordersBuf.WriteString(fmt.Sprintf("%s,%s,%s,%s,%s,%s\n",
+			o.OrderID, o.CustomerID, o.GrossAmount.StringFixed(4), o.Currency, o.OrderStatus, o.CreatedAt.Format("2006-01-02 15:04:05")))
+	}
+
+	// PG Settlements CSV
+	var pgBuf strings.Builder
+	pgBuf.WriteString("pg_txn_id,order_id,gross_amount,pg_fee,tax,net_amount,payout_id,payout_status,settled_at\n")
+	for _, s := range dataset.PGSettlements {
+		pgBuf.WriteString(fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+			s.PGTxnID, s.OrderID, s.GrossAmount.StringFixed(4), s.PGFee.StringFixed(4), s.Tax.StringFixed(4),
+			s.NetAmount.StringFixed(4), s.PayoutID, s.PayoutStatus, s.SettledAt.Format("2006-01-02 15:04:05")))
+	}
+
+	// Bank Statements CSV
+	var bankBuf strings.Builder
+	bankBuf.WriteString("bank_txn_id,utr_number,credit_amount,description,transaction_date\n")
+	for _, b := range dataset.BankStatements {
+		bankBuf.WriteString(fmt.Sprintf("%s,%s,%s,%s,%s\n",
+			b.BankTxnID, b.UTRNumber, b.CreditAmount.StringFixed(4), b.Description, b.TransactionDate.Format("2006-01-02 15:04:05")))
+	}
+
+	return ordersBuf.String(), pgBuf.String(), bankBuf.String()
+}
+
 // SeedRepository clears and inserts the realistic dataset into any storage implementation.
 func SeedRepository(ctx context.Context, repo repository.ReconciliationRepository) error {
 	if err := repo.ResetAll(ctx); err != nil {
@@ -428,6 +461,46 @@ func SeedRepository(ctx context.Context, repo repository.ReconciliationRepositor
 	if err := repo.Bank().InsertBatch(ctx, data.BankStatements); err != nil {
 		return fmt.Errorf("seed bank statements: %w", err)
 	}
+
+	// Record the seeded files in upload audit history
+	ordersCSV, pgCSV, bankCSV := GenerateDatasetCSVs(data)
+	now := time.Now().UTC()
+	_ = repo.Uploads().Create(ctx, &domain.UploadRecord{
+		ID:          uuid.New(),
+		UploadedAt:  now,
+		FileType:    "ORDERS",
+		FileName:    "orders_institutional_seed.csv",
+		FileSize:    int64(len(ordersCSV)),
+		RecordCount: len(data.Orders),
+		UploadedBy:  "System Auto-Seed Engine",
+		RawData:     ordersCSV,
+		Status:      "SUCCESS",
+		Summary:     fmt.Sprintf("Demo dataset: %d Orders across 6 batches", len(data.Orders)),
+	})
+	_ = repo.Uploads().Create(ctx, &domain.UploadRecord{
+		ID:          uuid.New(),
+		UploadedAt:  now.Add(1 * time.Second),
+		FileType:    "PG_SETTLEMENTS",
+		FileName:    "pg_settlements_seed.csv",
+		FileSize:    int64(len(pgCSV)),
+		RecordCount: len(data.PGSettlements),
+		UploadedBy:  "System Auto-Seed Engine",
+		RawData:     pgCSV,
+		Status:      "SUCCESS",
+		Summary:     fmt.Sprintf("Demo dataset: %d Payment Gateway Settlements", len(data.PGSettlements)),
+	})
+	_ = repo.Uploads().Create(ctx, &domain.UploadRecord{
+		ID:          uuid.New(),
+		UploadedAt:  now.Add(2 * time.Second),
+		FileType:    "BANK_STATEMENTS",
+		FileName:    "bank_statements_seed.csv",
+		FileSize:    int64(len(bankCSV)),
+		RecordCount: len(data.BankStatements),
+		UploadedBy:  "System Auto-Seed Engine",
+		RawData:     bankCSV,
+		Status:      "SUCCESS",
+		Summary:     fmt.Sprintf("Demo dataset: %d Bank Statement UTR Remittances", len(data.BankStatements)),
+	})
 
 	return nil
 }

@@ -101,3 +101,21 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 
+-- 6. Upload History & Data Ingestion Audit Records
+CREATE TABLE IF NOT EXISTS upload_records (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    file_type VARCHAR(64) NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_size BIGINT NOT NULL DEFAULT 0,
+    record_count INT NOT NULL DEFAULT 0,
+    uploaded_by VARCHAR(255) NOT NULL DEFAULT 'System Operator',
+    raw_data TEXT NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'SUCCESS',
+    summary TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_upload_records_uploaded_at ON upload_records(uploaded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_upload_records_file_type ON upload_records(file_type);
+
+

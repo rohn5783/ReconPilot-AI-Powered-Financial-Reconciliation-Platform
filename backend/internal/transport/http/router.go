@@ -58,6 +58,11 @@ func NewRouter(cfg *config.Config, reconSvc *service.ReconciliationService, expo
 		v1.POST("/reset", handler.ResetData)
 		v1.POST("/seed", handler.SeedData)
 		v1.GET("/export", handler.ExportReport)
+
+		// Upload History & Ingestion Archive
+		v1.GET("/uploads", handler.GetUploadHistory)
+		v1.GET("/uploads/:id", handler.GetUploadRecordByID)
+		v1.GET("/uploads/:id/download", handler.DownloadUploadedFile)
 	}
 
 	return router
