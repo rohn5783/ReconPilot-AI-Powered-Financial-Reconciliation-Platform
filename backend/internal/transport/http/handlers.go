@@ -325,8 +325,26 @@ func (h *Handler) StreamTelemetry(c *gin.Context) {
 	}
 }
 
-// SeedData resets the database and seeds realistic demo data.
+// ResetData completely wipes all orders, settlements, bank statements, and discrepancies.
+func (h *Handler) ResetData(c *gin.Context) {
+	if err := h.reconSvc.ResetData(c.Request.Context()); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "reset failed", "details": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "All financial ledger data wiped successfully"})
+}
+
+// SeedData resets the database and seeds realistic demo data (or erases if mode=clear).
 func (h *Handler) SeedData(c *gin.Context) {
+	if c.Query("mode") == "clear" {
+		if err := h.reconSvc.ResetData(c.Request.Context()); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "reset failed", "details": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "success", "message": "All financial ledger data wiped successfully"})
+		return
+	}
+
 	if err := h.reconSvc.SeedMockData(c.Request.Context()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "seed failed", "details": err.Error()})
 		return

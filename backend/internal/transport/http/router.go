@@ -44,7 +44,8 @@ func NewRouter(cfg *config.Config, reconSvc *service.ReconciliationService, expo
 		v1.POST("/reconcile", handler.TriggerReconciliation)
 		v1.GET("/reconcile/stream", handler.StreamTelemetry)
 
-		// Seed & Exports
+		// Reset, Seed & Exports
+		v1.POST("/reset", handler.ResetData)
 		v1.POST("/seed", handler.SeedData)
 		v1.GET("/export", handler.ExportReport)
 	}

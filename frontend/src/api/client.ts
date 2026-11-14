@@ -124,6 +124,24 @@ export const apiClient = {
     return res.json();
   },
 
+  async resetData(): Promise<any> {
+    const res = await fetch(`${API_BASE}/reset`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    if (!res.ok && res.status === 404) {
+      // Fallback for deployments before /reset route was added
+      const fallback = await fetch(`${API_BASE}/seed?mode=clear`, {
+        method: 'POST',
+        headers: getHeaders(),
+      });
+      if (!fallback.ok) throw new Error(await extractErrorMessage(fallback));
+      return fallback.json();
+    }
+    if (!res.ok) throw new Error(await extractErrorMessage(res));
+    return res.json();
+  },
+
   async seedData(): Promise<any> {
     const res = await fetch(`${API_BASE}/seed`, {
       method: 'POST',

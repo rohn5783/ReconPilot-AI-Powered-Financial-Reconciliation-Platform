@@ -12,6 +12,7 @@ import {
   Activity,
   CheckCircle2,
   X,
+  Trash2,
 } from 'lucide-react';
 import { useReconStore } from '../../store/useReconStore';
 import { apiClient } from '../../api/client';
@@ -23,6 +24,7 @@ export const CommandPalette: React.FC = () => {
     setActiveView,
     setStatusFilter,
     triggerReconcile,
+    resetData,
     seedData,
     toggleTelemetryDock,
   } = useReconStore();
@@ -79,6 +81,17 @@ export const CommandPalette: React.FC = () => {
               >
                 <Play className="w-4 h-4 text-recon-emerald fill-current" />
                 <span>Run 3-Way Reconciliation Engine</span>
+              </Command.Item>
+
+              <Command.Item
+                onSelect={() => {
+                  resetData();
+                  setCommandPaletteOpen(false);
+                }}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-recon-crimson hover:text-white hover:bg-recon-crimson/20 cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4 text-recon-crimson" />
+                <span>Reset & Erase All Ledger Data</span>
               </Command.Item>
 
               <Command.Item

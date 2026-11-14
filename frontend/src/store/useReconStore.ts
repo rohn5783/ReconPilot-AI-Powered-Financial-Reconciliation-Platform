@@ -50,6 +50,7 @@ interface ReconState {
   diagnoseSelectedDiscrepancy: () => Promise<void>;
   updateSelectedDiscrepancyStatus: (status: DiscrepancyStatus) => Promise<void>;
   triggerReconcile: (formData?: FormData) => Promise<boolean>;
+  resetData: () => Promise<void>;
   seedData: () => Promise<void>;
   addTelemetryEvent: (evt: PipelineTelemetryEvent) => void;
   setSearchQuery: (q: string) => void;
@@ -203,6 +204,52 @@ export const useReconStore = create<ReconState>((set, get) => ({
       console.error('Trigger reconcile failed:', err);
       set({ lastError: err?.message || 'Reconciliation execution failed' });
       return false;
+    } finally {
+      set({ isReconciling: false });
+    }
+  },
+
+  resetData: async () => {
+    set({
+      isReconciling: true,
+      currentProgress: 20,
+      currentStage: 'INGESTION',
+      currentMessage: 'Erasing all financial transactions, traces, and discrepancies...',
+      isTelemetryDockOpen: true,
+      lastError: null,
+    });
+    try {
+      await apiClient.resetData();
+      // Immediately wipe and zero out all UI state
+      set({
+        summary: {
+          total_orders: 0,
+          total_gross_order_volume: '0',
+          total_pg_settlements: 0,
+          total_pg_fees: '0',
+          total_pg_tax: '0',
+          expected_net_payout: '0',
+          total_bank_credits: '0',
+          net_discrepancy_variance: '0',
+          level_1_discrepancies_count: 0,
+          level_2_discrepancies_count: 0,
+          three_way_match_rate: '100',
+          reconciled_orders_count: 0,
+          unreconciled_orders_count: 0,
+        },
+        traces: [],
+        tracesTotal: 0,
+        payoutBatches: [],
+        discrepancies: [],
+        selectedDiscrepancy: null,
+        currentProgress: 100,
+        currentStage: 'COMPLETED',
+        currentMessage: 'Ledger erased. All transactions cleared from UI and storage.',
+      });
+      await get().fetchAllData();
+    } catch (err: any) {
+      console.error('Reset data failed:', err);
+      set({ lastError: err?.message || 'Failed to erase data' });
     } finally {
       set({ isReconciling: false });
     }

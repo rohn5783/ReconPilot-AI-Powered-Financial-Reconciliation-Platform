@@ -318,6 +318,62 @@ func (s *ReconciliationService) UpdateDiscrepancyStatus(ctx context.Context, id 
 	return nil
 }
 
+// ResetData completely wipes all orders, settlements, bank statements, and discrepancies from the repository,
+// resets the internal state to empty, and broadcasts a telemetry event.
+func (s *ReconciliationService) ResetData(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := s.repo.Discrepancies().Clear(ctx); err != nil {
+		return fmt.Errorf("clear discrepancies: %w", err)
+	}
+	if err := s.repo.Bank().Clear(ctx); err != nil {
+		return fmt.Errorf("clear bank statements: %w", err)
+	}
+	if err := s.repo.PG().Clear(ctx); err != nil {
+		return fmt.Errorf("clear pg settlements: %w", err)
+	}
+	if err := s.repo.Orders().Clear(ctx); err != nil {
+		return fmt.Errorf("clear orders: %w", err)
+	}
+
+	emptySummary := domain.ReconciliationSummary{
+		TotalOrders:              0,
+		TotalGrossOrderVolume:    money.Zero(),
+		TotalPGSettlements:       0,
+		TotalPGFees:              money.Zero(),
+		TotalPGTax:               money.Zero(),
+		ExpectedNetPayout:        money.Zero(),
+		TotalBankCredits:         money.Zero(),
+		NetDiscrepancyVariance:   money.Zero(),
+		Level1DiscrepanciesCount: 0,
+		Level2DiscrepanciesCount: 0,
+		ThreeWayMatchRate:        money.FromStringOrZero("100"),
+		ReconciledOrdersCount:    0,
+		UnreconciledOrdersCount:  0,
+	}
+
+	s.lastResult = &matching.ReconciliationResult{
+		Discrepancies: []domain.Discrepancy{},
+		TraceItems:    []domain.ThreeWayTraceItem{},
+		PayoutBatches: []domain.PayoutBatchGroup{},
+		Summary:       emptySummary,
+	}
+
+	if s.hub != nil {
+		s.hub.Broadcast(domain.PipelineTelemetryEvent{
+			Type:               "completed",
+			Stage:              "COMPLETED",
+			ProgressPercentage: 100.0,
+			Message:            "All financial ledger data erased successfully. Ledger reset to zero.",
+			Payload:            emptySummary,
+			Timestamp:          time.Now().UTC(),
+		})
+	}
+
+	return nil
+}
+
 // SeedMockData clears and re-populates the repository with the rich mock dataset and re-runs reconciliation.
 func (s *ReconciliationService) SeedMockData(ctx context.Context) error {
 	if err := seed.SeedRepository(ctx, s.repo); err != nil {

@@ -15,6 +15,7 @@ import {
   ShieldAlert,
   Check,
   X,
+  Trash2,
 } from 'lucide-react';
 import { useReconStore } from '../../store/useReconStore';
 import { apiClient } from '../../api/client';
@@ -23,6 +24,7 @@ export const TopHeader: React.FC = () => {
   const {
     isReconciling,
     triggerReconcile,
+    resetData,
     seedData,
     setCommandPaletteOpen,
     toggleTelemetryDock,
@@ -188,15 +190,15 @@ export const TopHeader: React.FC = () => {
           <span>Upload CSVs</span>
         </button>
 
-        {/* Reset & Reseed Demo Data Button */}
+        {/* Reset & Erase All Ledger Data Button */}
         <button
-          onClick={() => seedData()}
+          onClick={() => resetData()}
           disabled={isReconciling}
-          title="Reset database and seed realistic 60+ transaction multi-batch demo dataset"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-ledger-800 hover:bg-ledger-750 text-ledger-300 hover:text-white border border-ledger-700 text-xs font-medium transition disabled:opacity-50"
+          title="Erase all orders, settlements, bank remittances, and discrepancies from UI and database"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-ledger-800 hover:bg-recon-crimson/20 hover:border-recon-crimson/50 text-ledger-300 hover:text-recon-crimson border border-ledger-700 text-xs font-medium transition disabled:opacity-50"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${isReconciling ? 'animate-spin' : ''}`} />
-          <span>Reset & Reseed Demo Data</span>
+          <Trash2 className={`w-3.5 h-3.5 ${isReconciling ? 'animate-pulse text-recon-crimson' : 'text-recon-crimson/80'}`} />
+          <span>Reset & Erase All Data</span>
         </button>
 
         {/* Export Dropdown */}
